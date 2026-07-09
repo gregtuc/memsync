@@ -1,0 +1,38 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sync, the memsync mascot">
+  <defs>
+    <linearGradient id="body" x1="120" y1="120" x2="392" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6D5EF6"/>
+      <stop offset="1" stop-color="#19C4B4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- antenna -->
+  <line x1="256" y1="118" x2="256" y2="76" stroke="#8B7CF8" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="256" cy="66" r="15" fill="#19C4B4"/>
+
+  <!-- little feet -->
+  <rect x="196" y="404" width="46" height="26" rx="13" fill="#5A4CD8"/>
+  <rect x="270" y="404" width="46" height="26" rx="13" fill="#5A4CD8"/>
+
+  <!-- body -->
+  <rect x="116" y="120" width="280" height="296" rx="86" fill="url(#body)"/>
+
+  <!-- ears / side nodes (two agents it links) -->
+  <circle cx="116" cy="268" r="26" fill="#5A4CD8"/>
+  <circle cx="396" cy="268" r="26" fill="#19C4B4"/>
+
+  <!-- face screen -->
+  <rect x="156" y="176" width="200" height="150" rx="42" fill="#0E1230"/>
+
+  <!-- eyes -->
+  <circle cx="214" cy="242" r="24" fill="#FFFFFF"/>
+  <circle cx="298" cy="242" r="24" fill="#FFFFFF"/>
+  <circle cx="221" cy="248" r="9" fill="#0E1230"/>
+  <circle cx="305" cy="248" r="9" fill="#0E1230"/>
+  <!-- friendly smile -->
+  <path d="M212 288 Q256 312 300 288" stroke="#19C4B4" stroke-width="10" fill="none" stroke-linecap="round"/>
+
+  <!-- sync swirl on the chest: shared, encrypted memory -->
+  <path d="M232 372 A28 28 0 1 1 258 392" stroke="#FFFFFF" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <path d="M280 372 A28 28 0 1 1 254 352" stroke="#FFFFFF" stroke-width="12" fill="none" stroke-linecap="round"/>
+</svg>

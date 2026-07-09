@@ -1,114 +1,123 @@
-# memsync
+<p align="center">
+  <img src="assets/logo.svg" width="120" alt="memsync"/>
+</p>
 
-**Sync Claude Code and Codex memories — across tools and machines.**
-One static binary, one command, and only ciphertext ever touches git.
+<h1 align="center">memsync</h1>
 
-> 🚧 **Early scaffold.** The core pipeline works today: tool detection, hook
-> wiring, an encrypted vault with fail-closed guards, and cross-tool context
-> injection. Public-key pairing, `self update`, and the published install
-> channels are on the [roadmap](#roadmap). Until then, [build from
-> source](#build-from-source).
+<p align="center">
+  <b>One shared memory for Claude Code and Codex — across both tools and all your machines.</b><br/>
+  Local stays plaintext. Anything that leaves your machine is AES-256 encrypted.
+</p>
+
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#security">Security</a> ·
+  <a href="SECURITY.md">Threat model</a>
+</p>
 
 ---
 
-## What it does
+Claude Code and Codex each keep their own memory — the notes they write for
+themselves as they learn how you work. The problem: that memory is trapped.
+What you teach Claude is invisible to Codex, and none of it follows you to your
+other laptop.
 
-Claude Code and Codex each keep their **own** memory — notes the agents write for
-themselves. memsync is a **courier, never an editor**: it reads each tool's
-memory folder, and shows the *other* tool's memories as read-only context at the
-start of each session. Your memory files are never rewritten.
+memsync fixes that. Teach one agent something once, and the other knows it too —
+on every machine you use.
 
-The only thing that ever leaves your machine is an **encrypted git vault** whose
-working tree contains nothing but AES-256 ciphertext.
-
-```
-reads    each tool's own memory folder          (never edits them — courier, never editor)
-injects  the other tool's memories as read-only context at session start (writes no files)
-syncs    only AES-256 ciphertext through a private git vault
+```text
+you correct Claude on your desktop  →  Codex on your laptop already knows
+Codex figures something out         →  Claude sees it next session
 ```
 
-## Install
+## Quickstart
 
-> Not yet published to Homebrew / the install endpoint. For now, [build from
-> source](#build-from-source). The intended experience:
+One machine, no account, nothing to set up:
 
 ```sh
-brew install memsync/tap/memsync      # hero (coming soon)
-# or:  curl -fsSL https://memsync.dev/install.sh | sh
-```
-
-## Build from source
-
-```sh
-git clone https://github.com/gregtuc/memsync
-cd memsync
-go build -o memsync .
-./memsync init
-```
-
-## Quickstart — single machine, no remote
-
-```sh
+go install github.com/gregtuc/memsync@latest    # or: git clone … && go build -o memsync .
 memsync init
 ```
 
-Detects Claude and/or Codex, wires user-scope hooks, creates your key + local
-vault, and runs a round-trip self-test. No account, no remote, no config.
-**Restart any open Claude/Codex sessions** to load the hooks. Done.
+`init` finds Claude and/or Codex, installs a few small hooks, creates your key
+and a local encrypted vault, and runs a self-test. Restart any open Claude/Codex
+sessions and you're done — their memories are now shared locally.
+
+## Use it on more than one machine
+
+You don't create anything on GitHub yourself — memsync does it:
+
+```sh
+# on the machine you already use
+memsync remote create     # makes a PRIVATE repo for you (via the gh CLI)
+memsync pair              # paste in the new machine's invite, get a sealed reply
+
+# on the new machine
+memsync join             # prints an invite, then takes the sealed reply — done
+```
+
+Nothing you copy during pairing is a secret: the invite is a public key, and the
+reply is sealed so only the new machine can open it. Prefer to bring your own
+repo? `memsync remote set git@github.com:you/your-vault.git`. **Only use one
+machine? Skip this whole section** — no account, no repo, nothing.
 
 ## How it works
 
-memsync installs small hooks in each tool's user-scope config:
+memsync installs small hooks in each tool's own user-scope config. After that:
 
-- **SessionStart** → inject the other tool's memories as read-only context.
-- **FileChanged / SessionEnd / Stop** → capture new memories into the encrypted vault.
+- **an agent writes a memory** → memsync captures it and encrypts it into a private git vault
+- **a session starts** → memsync shows that session the *other* tool's memories as read-only context
 
-Cross-machine sync is just `git pull`/`push` on the vault. It stays out of the
-agents' way: it never edits `MEMORY.md`, never writes Codex's generated files,
-and never touches your hand-written `CLAUDE.md` / `AGENTS.md`.
+memsync only reads your agents' memory folders — it doesn't write to them, relocate
+them, or touch your `CLAUDE.md` / `AGENTS.md`. Nothing about how Claude or Codex
+behave changes; they just gain awareness of each other.
+
+Across machines, the encrypted vault is an ordinary private git repo. That's the
+only thing that ever travels — `git pull`/`push` under the hood, no service in the
+middle.
 
 ## Security
 
-- **AES-256** envelope; one key at `~/.config/memsync/key` (`0600`) that never
-  leaves your machine.
-- **Fail-closed guards** (`pre-commit`, `pre-merge-commit`, `pre-push`): nothing
-  but valid memsync ciphertext can enter a committed or pushed git object.
-- **Local files stay plaintext by design** — the encryption boundary is git.
-- No telemetry, no account. See [SECURITY.md](SECURITY.md).
+- **AES-256** envelope. One key at `~/.config/memsync/key` (`0600`) that never leaves your machine.
+- The vault's working tree holds **only ciphertext**. Fail-closed `pre-commit` /
+  `pre-merge-commit` / `pre-push` guards reject anything that isn't valid memsync
+  ciphertext — so plaintext can't reach a committed or pushed git object.
+- **Local files stay plaintext on purpose.** Your agents already keep tokens and
+  notes in the clear locally; the boundary memsync enforces is git.
+- Pairing uses X25519 public-key sealing — the key is never sent in the clear.
+- No telemetry, no account, zero third-party dependencies. Details in [SECURITY.md](SECURITY.md).
 
-## Sync a second machine
+## Commands
 
-```sh
-# machine 1
-memsync remote create      # private repo via gh (or: memsync remote set <url>)
-memsync pair               # seals the vault key to the new machine's public key
-# machine 2
-memsync join               # nothing you copy is a secret
+```text
+memsync init        set everything up (idempotent)
+memsync doctor      status table + live self-test  (--fix repairs)
+memsync status      what's synced right now
+memsync remote      create a private vault repo (or set your own)
+memsync pair/join   add another machine (public-key sealed)
+memsync uninstall   remove memsync's hooks  (--purge also clears key + vault)
 ```
 
-## Trust & undo
+## Status & roadmap
 
-```sh
-memsync doctor    # per-tool table + live self-test
-memsync status    # what's synced right now
-memsync uninstall # removes only memsync's hooks; --purge also clears key + vault
-```
+The core works today: detection, hooks, the encrypted vault with guards,
+cross-tool injection, and multi-machine pairing + sync.
 
-## Roadmap
+- [x] Public-key sealed pairing (`pair` / `join`)
+- [x] Vault-backed cross-machine sync
+- [ ] AES-256-GCM-SIV (nonce-misuse-resistant AEAD)
+- [ ] Near-duplicate detection so paraphrased round-trips don't pile up
+- [ ] `self update` with signed-release verification
+- [ ] Homebrew tap + one-line installer + signed, notarized releases
 
-- [x] Public-key sealed pairing (`pair` / `join`) — no secret ever copied
-- [x] Vault-backed cross-machine sync (inject/sync go through the encrypted vault)
-- [ ] Swap the AEAD to AES-256-GCM-SIV (nonce-misuse resistant)
-- [ ] Near-duplicate detection (SimHash) so paraphrased round-trips don't pile up
-- [ ] `self update` with GitHub attestation verification
-- [ ] Homebrew tap + `install.sh` + signed/notarized releases + SLSA provenance
-- [ ] Optional durable delivery into Codex via `extensions/<name>/notes`
+## What to expect
 
-## Honest boundaries
-
-- Sync is a **session-boundary** event, not live into a running session.
-- Round-trips are **semantic, not verbatim** — both tools paraphrase memory.
-- memsync makes each tool *know* the other's memories; it can't make them *obey*.
+- Memories show up **at the next session**, not live inside a running one.
+- Both tools rewrite memory in their own words, so a shared fact is kept **once
+  per side**, not as identical text.
+- memsync makes each tool *know* what the other learned — it doesn't force either
+  to act on it.
 
 ## License
 

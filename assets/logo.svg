@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="memsync logo">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6D5EF6"/>
+      <stop offset="1" stop-color="#19C4B4"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="496" height="496" rx="116" fill="url(#g)"/>
+  <!-- padlock shackle: encrypted -->
+  <path d="M196 232 L196 196 A60 60 0 0 1 316 196 L316 232" stroke="#FFFFFF" stroke-width="30" fill="none" stroke-linecap="round"/>
+  <!-- padlock body -->
+  <rect x="150" y="232" width="212" height="156" rx="30" fill="#FFFFFF"/>
+  <!-- two linked memory nodes, carved into the lock -->
+  <rect x="224" y="302" width="64" height="16" rx="8" fill="url(#g)"/>
+  <circle cx="224" cy="310" r="17" fill="url(#g)"/>
+  <circle cx="288" cy="310" r="17" fill="url(#g)"/>
+</svg>
