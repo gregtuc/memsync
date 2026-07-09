@@ -81,9 +81,9 @@ and never touches your hand-written `CLAUDE.md` / `AGENTS.md`.
 ```sh
 # machine 1
 memsync remote create      # private repo via gh (or: memsync remote set <url>)
-memsync pair               # (roadmap) seals the key to the new machine's public key
+memsync pair               # seals the vault key to the new machine's public key
 # machine 2
-memsync join               # (roadmap) nothing you copy is a secret
+memsync join               # nothing you copy is a secret
 ```
 
 ## Trust & undo
@@ -96,7 +96,8 @@ memsync uninstall # removes only memsync's hooks; --purge also clears key + vaul
 
 ## Roadmap
 
-- [ ] Public-key sealed pairing (`pair` / `join`) — no secret ever copied
+- [x] Public-key sealed pairing (`pair` / `join`) — no secret ever copied
+- [x] Vault-backed cross-machine sync (inject/sync go through the encrypted vault)
 - [ ] Swap the AEAD to AES-256-GCM-SIV (nonce-misuse resistant)
 - [ ] Near-duplicate detection (SimHash) so paraphrased round-trips don't pile up
 - [ ] `self update` with GitHub attestation verification

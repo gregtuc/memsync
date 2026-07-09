@@ -60,6 +60,18 @@ func LoadOrCreateKey(path string) ([]byte, bool, error) {
 	return k, true, nil
 }
 
+// SaveKey writes key to path (dir 0700, file 0600), replacing any existing key.
+// Used by `join` to adopt the vault's key received during pairing.
+func SaveKey(path string, key []byte) error {
+	if len(key) != KeySize {
+		return fmt.Errorf("key must be %d bytes, got %d", KeySize, len(key))
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(hex.EncodeToString(key)+"\n"), 0o600)
+}
+
 // Encrypt wraps plaintext in the memsync envelope.
 func Encrypt(key, plaintext []byte) ([]byte, error) {
 	aead, err := newAEAD(key)

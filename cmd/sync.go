@@ -68,7 +68,10 @@ func syncTool(tool string) error {
 			continue
 		}
 	}
-	return vault.CommitAll(fmt.Sprintf("sync %s (%d records)", tool, len(mems)))
+	if err := vault.CommitAll(fmt.Sprintf("sync %s (%d records)", tool, len(mems))); err != nil {
+		return err
+	}
+	return vault.Push()
 }
 
 // recordName is content-addressed on IDENTITY (origin+scope+title) so re-syncing

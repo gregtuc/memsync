@@ -111,8 +111,32 @@ func Push() error {
 	if !HasRemote() {
 		return nil
 	}
-	_, err := git(paths.VaultDir(), "push", "-q", "origin", "HEAD")
+	_, err := git(paths.VaultDir(), "push", "-q", "-u", "origin", "HEAD")
 	return err
+}
+
+// Pull fast-forwards the vault from origin (no-op if no remote). Best-effort.
+func Pull() error {
+	if !HasRemote() {
+		return nil
+	}
+	_, err := git(paths.VaultDir(), "pull", "-q", "--ff-only")
+	return err
+}
+
+// Records returns the absolute paths of the vault's encrypted record files.
+func Records() ([]string, error) {
+	entries, err := os.ReadDir(paths.VaultDir())
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".enc") {
+			out = append(out, filepath.Join(paths.VaultDir(), e.Name()))
+		}
+	}
+	return out, nil
 }
 
 // LastCommit returns a short description of the latest vault commit, or "".
@@ -122,6 +146,25 @@ func LastCommit() string {
 		return ""
 	}
 	return strings.TrimSpace(out)
+}
+
+// Clone replaces the local vault with a fresh clone of url (used by `join`).
+func Clone(url string) error {
+	dir := paths.VaultDir()
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return err
+	}
+	_, err := git(filepath.Dir(dir), "clone", "-q", url, dir)
+	return err
+}
+
+// RemoteReachable reports whether origin can be listed (auth + network OK).
+func RemoteReachable() bool {
+	_, err := git(paths.VaultDir(), "ls-remote", "origin")
+	return err == nil
 }
 
 // HasRemote reports whether an "origin" remote is configured.

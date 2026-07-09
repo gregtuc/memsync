@@ -94,16 +94,37 @@ func RenderContext(fromLabel string, mems []Memory, maxBytes int) string {
 	return b.String()
 }
 
+// oneLine summarizes a note, preferring the first real content line over a
+// markdown heading (falling back to the heading if that's all there is).
 func oneLine(s string) string {
-	s = strings.TrimSpace(s)
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(strings.TrimLeft(line, "#-* "))
-		if line != "" {
-			if len(line) > 140 {
-				return line[:140] + "…"
-			}
-			return line
+	var firstHeading string
+	for _, raw := range strings.Split(strings.TrimSpace(s), "\n") {
+		t := strings.TrimSpace(raw)
+		if t == "" {
+			continue
 		}
+		heading := strings.HasPrefix(t, "#")
+		clean := strings.TrimSpace(strings.TrimLeft(t, "#-*> "))
+		if clean == "" {
+			continue
+		}
+		if heading {
+			if firstHeading == "" {
+				firstHeading = clean
+			}
+			continue
+		}
+		return clip(clean)
+	}
+	if firstHeading != "" {
+		return clip(firstHeading)
 	}
 	return "(empty)"
+}
+
+func clip(s string) string {
+	if len(s) > 140 {
+		return s[:140] + "…"
+	}
+	return s
 }
