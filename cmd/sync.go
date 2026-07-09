@@ -56,16 +56,8 @@ func syncTool(tool string) error {
 		return fmt.Errorf("unknown --tool %q", tool)
 	}
 
-	seen := loadFingerprints(key)
-	written := 0
-	for _, m := range mems {
-		if courier.LooksSynced(m.Body) {
-			continue // verbatim copy of something memsync injected; never re-capture it
-		}
-		h := simhash.Hash(m.Body)
-		if dedup.IsEcho(m.Origin, h, seen, dedup.DefaultThreshold) {
-			continue // the other tool's memory reworded and echoed back; don't re-ship it
-		}
+	toWrite := selectForWrite(mems, loadFingerprints(key))
+	for _, m := range toWrite {
 		rec := record{Origin: m.Origin, Scope: m.Scope, Title: m.Title, Body: m.Body}
 		plain, err := json.Marshal(rec)
 		if err != nil {
@@ -78,13 +70,30 @@ func syncTool(tool string) error {
 		if err := os.WriteFile(filepath.Join(paths.VaultDir(), recordName(rec)), env, 0o644); err != nil {
 			continue
 		}
-		seen = append(seen, dedup.Fingerprint{Origin: m.Origin, Hash: h})
-		written++
 	}
-	if err := vault.CommitAll(fmt.Sprintf("sync %s (%d records)", tool, written)); err != nil {
+	if err := vault.CommitAll(fmt.Sprintf("sync %s (%d records)", tool, len(toWrite))); err != nil {
 		return err
 	}
 	return vault.Push()
+}
+
+// selectForWrite drops memories that are (1) verbatim copies of memsync-injected
+// context or (2) near-exact echoes of another tool's already-stored memory, so
+// captures don't loop or accumulate. Same-origin updates pass through.
+func selectForWrite(mems []courier.Memory, seen []dedup.Fingerprint) []courier.Memory {
+	var out []courier.Memory
+	for _, m := range mems {
+		if courier.LooksSynced(m.Body) {
+			continue
+		}
+		h := simhash.Hash(m.Body)
+		if dedup.IsEcho(m.Origin, h, seen, dedup.DefaultThreshold) {
+			continue
+		}
+		out = append(out, m)
+		seen = append(seen, dedup.Fingerprint{Origin: m.Origin, Hash: h})
+	}
+	return out
 }
 
 // loadFingerprints reads the existing vault records so a new capture can be

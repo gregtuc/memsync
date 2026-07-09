@@ -18,19 +18,40 @@ const injectMaxBytes = 4000
 // every memory NOT written by the receiving tool (i.e. the other tool's, from
 // any machine) as read-only context. Always exits 0 - never breaks a session.
 func runInject(args []string) int {
-	tool := flagValue(args, "--tool")
-	if tool != "claude" && tool != "codex" {
+	ctx := injectionContext(flagValue(args, "--tool"))
+	if ctx == "" {
 		return 0
+	}
+	// NOTE: hook output schema shared by both tools; verify per version.
+	out := map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":     "SessionStart",
+			"additionalContext": ctx,
+		},
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return 0
+	}
+	fmt.Fprintln(os.Stdout, string(b))
+	return 0
+}
+
+// injectionContext reads the vault and renders the memories that did NOT come
+// from the receiving tool. Returns "" when there is nothing to show.
+func injectionContext(tool string) string {
+	if tool != "claude" && tool != "codex" {
+		return ""
 	}
 	_ = vault.Pull() // best-effort refresh from other machines
 
 	key, _, err := crypto.LoadOrCreateKey(paths.KeyPath())
 	if err != nil {
-		return 0
+		return ""
 	}
 	files, err := vault.Records()
 	if err != nil {
-		return 0
+		return ""
 	}
 
 	var mems []courier.Memory
@@ -52,28 +73,12 @@ func runInject(args []string) int {
 		}
 		mems = append(mems, courier.Memory{Origin: r.Origin, Scope: r.Scope, Title: r.Title, Body: r.Body})
 	}
+	return courier.RenderContext(injectLabel(tool), mems, injectMaxBytes)
+}
 
-	label := "the other tool"
+func injectLabel(tool string) string {
 	if tool == "claude" {
-		label = "Codex (background summaries)"
-	} else {
-		label = "Claude Code"
+		return "Codex (background summaries)"
 	}
-	ctx := courier.RenderContext(label, mems, injectMaxBytes)
-	if ctx == "" {
-		return 0
-	}
-	// NOTE: hook output schema shared by both tools; verify per version.
-	out := map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":     "SessionStart",
-			"additionalContext": ctx,
-		},
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return 0
-	}
-	fmt.Fprintln(os.Stdout, string(b))
-	return 0
+	return "Claude Code"
 }
