@@ -1,0 +1,14 @@
+# build output
+/memsync
+/dist/
+*.exe
+
+# local scratch
+*.bak
+*.memsync.bak
+*.orig
+
+# editor
+.DS_Store
+.idea/
+.vscode/
