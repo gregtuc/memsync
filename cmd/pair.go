@@ -24,13 +24,13 @@ type pairPayload struct {
 // runPair (machine 1) seals the vault key to the new machine's public invite.
 func runPair(args []string) int {
 	if !vault.HasRemote() {
-		fmt.Println("No remote yet — a second machine needs somewhere to sync.")
+		fmt.Println("No remote yet - a second machine needs somewhere to sync.")
 		fmt.Println("Run `memsync remote create` (or `memsync remote set <url>`) first.")
 		return 1
 	}
 	url := vault.RemoteURL()
 	if !vault.RemoteReachable() {
-		warn("cannot reach the remote (%s) — check `gh auth`/network; continuing anyway", url)
+		warn("cannot reach the remote (%s) - check `gh auth`/network; continuing anyway", url)
 	}
 
 	fmt.Println("\nPaste the invite code from the new machine (it printed one after `memsync join`):")
@@ -51,7 +51,7 @@ func runPair(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	fmt.Printf("\nSealed reply (not a secret — only the new machine can open it):\n\n")
+	fmt.Printf("\nSealed reply (not a secret - only the new machine can open it):\n\n")
 	fmt.Println("    " + reply)
 	fmt.Println("\nPaste this back on the new machine to finish.")
 	return 0
@@ -69,7 +69,7 @@ func runJoin(args []string) int {
 		return fail(err)
 	}
 
-	fmt.Printf("\nYour machine's invite code (safe to send over anything — it's a public key):\n\n")
+	fmt.Printf("\nYour machine's invite code (safe to send over anything - it's a public key):\n\n")
 	fmt.Println("    " + id.Invite())
 	fmt.Println("\nOn your other machine: run `memsync pair`, paste that invite, copy the reply.")
 	fmt.Print("\nPaste the sealed reply here: ")

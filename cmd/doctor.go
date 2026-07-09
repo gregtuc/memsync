@@ -68,7 +68,7 @@ func yn(b bool) string {
 	if b {
 		return "✓"
 	}
-	return "—"
+	return "-"
 }
 
 func present(b bool) string {

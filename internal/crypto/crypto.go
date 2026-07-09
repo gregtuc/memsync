@@ -2,16 +2,24 @@
 // enter the git vault. Local files are never touched by this package.
 //
 // Envelope layout: magic(8) || nonce(12) || AES-256-GCM(ciphertext||tag).
-// Target primitive is AES-256-GCM-SIV (nonce-misuse resistant); this scaffold
-// ships AES-256-GCM with a random nonce and re-encrypt-on-change. Swapping the
-// AEAD is isolated to seal/open below.
+//
+// The nonce is derived from the content, not random: nonce = HMAC(key, plaintext).
+// Two consequences, both wanted here:
+//  1. A nonce is never reused across two different messages, so AES-256-GCM keeps
+//     its guarantees (the failure mode of GCM is nonce reuse across distinct
+//     plaintexts, which this construction makes impossible).
+//  2. Identical content encrypts to identical bytes, so re-syncing an unchanged
+//     record is a git no-op. The accepted cost is that someone who steals the
+//     vault can tell whether two records are equal (documented in SECURITY.md).
 package crypto
 
 import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -23,7 +31,7 @@ import (
 // KeySize is the AES-256 key length in bytes.
 const KeySize = 32
 
-var magic = []byte("MSYNCv1\x00")
+var magic = []byte("MSYNCv2\x00")
 
 // GenerateKey returns a fresh 256-bit key from the OS CSPRNG.
 func GenerateKey() ([]byte, error) {
@@ -78,10 +86,7 @@ func Encrypt(key, plaintext []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
+	nonce := syntheticNonce(key, plaintext, aead.NonceSize())
 	out := make([]byte, 0, len(magic)+len(nonce)+len(plaintext)+aead.Overhead())
 	out = append(out, magic...)
 	out = append(out, nonce...)
@@ -110,6 +115,15 @@ func Decrypt(key, envelope []byte) ([]byte, error) {
 // guard uses this (plus a decrypt check) to refuse anything that isn't sealed.
 func IsCiphertext(data []byte) bool {
 	return len(data) >= len(magic) && bytes.Equal(data[:len(magic)], magic)
+}
+
+// syntheticNonce derives a deterministic nonce from the content so it is never
+// reused across distinct plaintexts and identical content stays byte-identical.
+func syntheticNonce(key, plaintext []byte, size int) []byte {
+	m := hmac.New(sha256.New, key)
+	m.Write([]byte("memsync-nonce-v1"))
+	m.Write(plaintext)
+	return m.Sum(nil)[:size]
 }
 
 func newAEAD(key []byte) (cipher.AEAD, error) {

@@ -54,7 +54,7 @@ func Execute(args []string) int {
 }
 
 func usage() {
-	fmt.Printf("memsync %s — memory courier for Claude Code & Codex\n\n", Version)
+	fmt.Printf("memsync %s - memory courier for Claude Code & Codex\n\n", Version)
 	fmt.Println("Usage: memsync <command> [flags]")
 	fmt.Println("\nCommands:")
 	for _, c := range commands() {

@@ -10,7 +10,9 @@ import (
 
 	"github.com/gregtuc/memsync/internal/courier"
 	"github.com/gregtuc/memsync/internal/crypto"
+	"github.com/gregtuc/memsync/internal/dedup"
 	"github.com/gregtuc/memsync/internal/paths"
+	"github.com/gregtuc/memsync/internal/simhash"
 	"github.com/gregtuc/memsync/internal/vault"
 )
 
@@ -54,7 +56,16 @@ func syncTool(tool string) error {
 		return fmt.Errorf("unknown --tool %q", tool)
 	}
 
+	seen := loadFingerprints(key)
+	written := 0
 	for _, m := range mems {
+		if courier.LooksSynced(m.Body) {
+			continue // verbatim copy of something memsync injected; never re-capture it
+		}
+		h := simhash.Hash(m.Body)
+		if dedup.IsEcho(m.Origin, h, seen, dedup.DefaultThreshold) {
+			continue // the other tool's memory reworded and echoed back; don't re-ship it
+		}
 		rec := record{Origin: m.Origin, Scope: m.Scope, Title: m.Title, Body: m.Body}
 		plain, err := json.Marshal(rec)
 		if err != nil {
@@ -67,11 +78,39 @@ func syncTool(tool string) error {
 		if err := os.WriteFile(filepath.Join(paths.VaultDir(), recordName(rec)), env, 0o644); err != nil {
 			continue
 		}
+		seen = append(seen, dedup.Fingerprint{Origin: m.Origin, Hash: h})
+		written++
 	}
-	if err := vault.CommitAll(fmt.Sprintf("sync %s (%d records)", tool, len(mems))); err != nil {
+	if err := vault.CommitAll(fmt.Sprintf("sync %s (%d records)", tool, written)); err != nil {
 		return err
 	}
 	return vault.Push()
+}
+
+// loadFingerprints reads the existing vault records so a new capture can be
+// deduped against what is already stored.
+func loadFingerprints(key []byte) []dedup.Fingerprint {
+	files, err := vault.Records()
+	if err != nil {
+		return nil
+	}
+	var fps []dedup.Fingerprint
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		plain, err := crypto.Decrypt(key, b)
+		if err != nil {
+			continue
+		}
+		var r record
+		if json.Unmarshal(plain, &r) != nil {
+			continue
+		}
+		fps = append(fps, dedup.Fingerprint{Origin: r.Origin, Hash: simhash.Hash(r.Body)})
+	}
+	return fps
 }
 
 // recordName is content-addressed on IDENTITY (origin+scope+title) so re-syncing

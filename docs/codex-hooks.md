@@ -1,10 +1,10 @@
-# Codex hook wiring — verification note
+# Codex hook wiring - verification note
 
 memsync wires itself into Codex via a marker-delimited block in
 `~/.codex/config.toml` (`internal/hooks/codex.go`):
 
 ```toml
-# >>> memsync (managed) — do not edit this block >>>
+# >>> memsync (managed) - do not edit this block >>>
 [features]
 hooks = true
 
@@ -26,7 +26,7 @@ versions. Before trusting the block above, confirm against your Codex version:
   (`hookSpecificOutput.additionalContext`).
 
 Known gotcha: repo-local `config.toml` hooks may not fire
-(openai/codex#17532) — memsync only ever writes **user-scope** config.
+(openai/codex#17532) - memsync only ever writes **user-scope** config.
 
 The block is always valid TOML and is removed verbatim by `memsync uninstall`,
 so a wrong key is inert, not destructive. `memsync init --dry-run` previews it.

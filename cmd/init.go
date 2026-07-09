@@ -15,7 +15,7 @@ import (
 func runInit(args []string) int {
 	dry := hasFlag(args, "--dry-run")
 
-	fmt.Printf("\nmemsync %s — memory courier for Claude Code & Codex\n", Version)
+	fmt.Printf("\nmemsync %s - memory courier for Claude Code & Codex\n", Version)
 
 	bin, err := selfPath()
 	if err != nil {
@@ -90,7 +90,7 @@ func runInit(args []string) int {
 		return fail(fmt.Errorf("self-test failed: %w", err))
 	}
 
-	fmt.Println("\nDone — synced locally. Nothing crossed the network (single-machine mode).")
+	fmt.Println("\nDone - synced locally. Nothing crossed the network (single-machine mode).")
 	fmt.Println("↻ Restart any open Claude Code / Codex sessions to load the new hooks.")
 	fmt.Println("\nNext (all optional):")
 	fmt.Println("  memsync status     what's synced right now")

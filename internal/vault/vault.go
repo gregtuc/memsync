@@ -1,4 +1,4 @@
-// Package vault manages the encrypted git repo — the only thing that crosses
+// Package vault manages the encrypted git repo - the only thing that crosses
 // machines. Its working tree holds nothing but memsync ciphertext, enforced by
 // guard hooks installed via core.hooksPath (which, unlike .git/hooks, we control
 // and which survives a fresh clone once re-provisioned).
@@ -79,10 +79,10 @@ func GuardTree(key []byte) error {
 			continue
 		}
 		if !crypto.IsCiphertext(b) {
-			return fmt.Errorf("guard: %s is not memsync ciphertext — refusing", f)
+			return fmt.Errorf("guard: %s is not memsync ciphertext - refusing", f)
 		}
 		if _, err := crypto.Decrypt(key, b); err != nil {
-			return fmt.Errorf("guard: %s does not decrypt under local key — refusing: %w", f, err)
+			return fmt.Errorf("guard: %s does not decrypt under local key - refusing: %w", f, err)
 		}
 	}
 	return nil
@@ -141,7 +141,7 @@ func Records() ([]string, error) {
 
 // LastCommit returns a short description of the latest vault commit, or "".
 func LastCommit() string {
-	out, err := git(paths.VaultDir(), "log", "-1", "--pretty=%cr — %s")
+	out, err := git(paths.VaultDir(), "log", "-1", "--pretty=%cr - %s")
 	if err != nil {
 		return ""
 	}

@@ -1,12 +1,12 @@
 # Branding
 
 ## Palette
-- Indigo `#6D5EF6` → Teal `#19C4B4` (primary gradient, top-left → bottom-right)
+- Indigo `#6D5EF6` to Teal `#19C4B4` (primary gradient, top-left to bottom-right)
 - Indigo shade `#5A4CD8`, dark screen `#0E1230`, white `#FFFFFF`
 
 ## Assets
-- `assets/logo.svg` — the mark: a padlock enclosing two linked nodes = *encrypted memory, shared between two agents*. Use for the repo icon, favicon, and social card.
-- `assets/mascot.svg` — "Sync", a friendly bot mascot (v0, hand-authored). Fine as-is; the prompt below will produce a more polished raster version.
+- `assets/logo.svg` - the mark: a padlock enclosing two linked nodes = *encrypted memory, shared between two agents*. Use for the repo icon, favicon, and social card.
+- `assets/mascot.svg` - "Sync", a friendly bot mascot (v0, hand-authored). Fine as-is; the prompt below will produce a more polished raster version.
 
 ## Rendering to PNG
 No renderer ships on macOS by default. Any of:

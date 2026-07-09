@@ -16,7 +16,7 @@ const injectMaxBytes = 4000
 
 // runInject is hook-invoked at SessionStart. It refreshes the vault, then emits
 // every memory NOT written by the receiving tool (i.e. the other tool's, from
-// any machine) as read-only context. Always exits 0 — never breaks a session.
+// any machine) as read-only context. Always exits 0 - never breaks a session.
 func runInject(args []string) int {
 	tool := flagValue(args, "--tool")
 	if tool != "claude" && tool != "codex" {

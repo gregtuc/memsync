@@ -18,7 +18,7 @@ func selfTest() error {
 		return err
 	}
 
-	canary := []byte("memsync canary — round-trip check")
+	canary := []byte("memsync canary - round-trip check")
 	env, err := crypto.Encrypt(key, canary)
 	if err != nil {
 		return err

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	codexBegin = "# >>> memsync (managed) — do not edit this block >>>"
+	codexBegin = "# >>> memsync (managed) - do not edit this block >>>"
 	codexEnd   = "# <<< memsync (managed) <<<"
 )
 

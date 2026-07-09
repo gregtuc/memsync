@@ -31,7 +31,7 @@ func runStatus(args []string) int {
 		ok("last sync %s", last)
 	}
 	if remote != "" && fileExists(paths.KeyPath()) {
-		fmt.Println("\n  reminder: back up your key — key loss is unrecoverable by design.")
+		fmt.Println("\n  reminder: back up your key - key loss is unrecoverable by design.")
 		fmt.Println("            " + paths.KeyPath())
 	}
 	return 0

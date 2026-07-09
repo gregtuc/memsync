@@ -61,7 +61,7 @@ func remoteCreate() int {
 	if err := vault.Push(); err != nil {
 		return fail(err)
 	}
-	ok("vault pushed — run `memsync pair` to add another machine")
+	ok("vault pushed - run `memsync pair` to add another machine")
 	return 0
 }
 

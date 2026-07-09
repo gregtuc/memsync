@@ -43,7 +43,7 @@ func runUninstall(args []string) int {
 		}
 	}
 	if remote := vault.RemoteURL(); remote != "" {
-		warn("the remote repo still exists on GitHub — delete it yourself: %s", remote)
+		warn("the remote repo still exists on GitHub - delete it yourself: %s", remote)
 	}
 	fmt.Println("\nNote: this does not remove the installed binary or any PATH line the installer added.")
 	return 0

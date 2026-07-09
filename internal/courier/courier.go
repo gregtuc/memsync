@@ -19,6 +19,20 @@ type Memory struct {
 	Body   string
 }
 
+// referenceMarker tags injected context; syncedTag prefixes each injected line.
+// If either shows up in a captured memory, that memory is an echo of something
+// memsync itself injected, so it must not be re-captured.
+const (
+	referenceMarker = "memsync:reference-only"
+	syncedTag       = "[synced-from:"
+)
+
+// LooksSynced reports whether a memory body is (verbatim) memsync-injected
+// content that an agent copied into its own store.
+func LooksSynced(body string) bool {
+	return strings.Contains(body, referenceMarker) || strings.Contains(body, syncedTag)
+}
+
 // CollectClaude reads Claude's per-project auto-memory topic files (read-only).
 func CollectClaude() ([]Memory, error) {
 	var out []Memory
@@ -81,10 +95,10 @@ func RenderContext(fromLabel string, mems []Memory, maxBytes int) string {
 	sort.Slice(mems, func(i, j int) bool { return mems[i].Title < mems[j].Title })
 
 	var b strings.Builder
-	b.WriteString("<!-- memsync:reference-only -->\n")
-	b.WriteString("### From " + fromLabel + " — reference only, may be stale; do not copy into your own memory.\n\n")
+	b.WriteString("<!-- " + referenceMarker + " -->\n")
+	b.WriteString("### From " + fromLabel + " (reference only, may be stale; do not copy into your own memory).\n\n")
 	for _, m := range mems {
-		line := "- [synced-from:" + m.Origin + "] (" + m.Scope + ") " + m.Title + " — " + oneLine(m.Body) + "\n"
+		line := "- " + syncedTag + m.Origin + "] (" + m.Scope + ") " + m.Title + ": " + oneLine(m.Body) + "\n"
 		if b.Len()+len(line) > maxBytes {
 			b.WriteString("- … (truncated to fit context budget; more available on request)\n")
 			break
