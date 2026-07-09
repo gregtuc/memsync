@@ -18,11 +18,14 @@ const (
 // Schema verified against Codex docs: PascalCase event names, and a command
 // STRING nested in [[hooks.<Event>.hooks]] with type = "command". The Stop hook
 // program emits JSON on exit 0 (Codex requires it). See docs/codex-hooks.md.
+//
+// We deliberately do NOT emit a [features] table: hooks are enabled by default,
+// and a second [features] table would be a duplicate (TOML forbids that) if the
+// user already has one, breaking config load. Only array-of-tables ([[...]])
+// entries are emitted, which are always safe to append.
 func codexBlock(bin string) string {
 	var b strings.Builder
 	b.WriteString(codexBegin + "\n")
-	b.WriteString("[features]\n")
-	b.WriteString("hooks = true\n\n")
 	b.WriteString("[[hooks.SessionStart]]\n\n")
 	b.WriteString("[[hooks.SessionStart.hooks]]\n")
 	b.WriteString("type = \"command\"\n")

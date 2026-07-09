@@ -149,6 +149,26 @@ func TestCodexInstallIsIdempotentReversibleAndNonDestructive(t *testing.T) {
 	}
 }
 
+// Regression: a config that already has a [features] table must not end up with
+// a duplicate (TOML forbids it and Codex then fails to load config).
+func TestCodexInstallDoesNotDuplicateFeatures(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	os.MkdirAll(filepath.Join(home, ".codex"), 0o755)
+	os.WriteFile(paths.CodexConfig(), []byte("[features]\nweb_search = true\n"), 0o644)
+
+	if err := CodexInstall("/x/memsync"); err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := os.ReadFile(paths.CodexConfig())
+	if n := strings.Count(string(cs), "[features]"); n != 1 {
+		t.Fatalf("want exactly 1 [features] table, got %d", n)
+	}
+	if strings.Contains(codexBlock("/x/memsync"), "[features]") {
+		t.Fatal("codexBlock must not emit its own [features] table")
+	}
+}
+
 func readClaudeSettings(t *testing.T) map[string]any {
 	b, err := os.ReadFile(paths.ClaudeSettings())
 	if err != nil {
