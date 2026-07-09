@@ -30,6 +30,9 @@ func runSync(args []string) int {
 	if err := syncTool(tool); err != nil {
 		fmt.Fprintf(os.Stderr, "memsync sync: %v\n", err)
 	}
+	// Codex Stop hooks require valid JSON on stdout when exiting 0; an empty
+	// object is a no-op for both Codex (Stop) and Claude (SessionEnd).
+	fmt.Fprintln(os.Stdout, "{}")
 	return 0
 }
 

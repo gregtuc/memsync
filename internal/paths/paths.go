@@ -56,11 +56,5 @@ func CodexDir() string {
 // CodexConfig is the user-scope Codex config file memsync wires hooks into.
 func CodexConfig() string { return filepath.Join(CodexDir(), "config.toml") }
 
-// ClaudeMemoryGlob matches Claude's per-project auto-memory files, used as the
-// FileChanged watch matcher.
-func ClaudeMemoryGlob() string {
-	return filepath.Join(ClaudeDir(), "projects", "**", "memory", "**")
-}
-
 // CodexMemories is Codex's own memory store (read-only to memsync).
 func CodexMemories() string { return filepath.Join(CodexDir(), "memories") }

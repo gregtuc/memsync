@@ -105,12 +105,12 @@ func wire(toolName, bin string) error {
 		if err := hooks.ClaudeInstall(bin); err != nil {
 			return err
 		}
-		ok("%s   %s", filepath.Base(paths.ClaudeSettings()), "SessionStart · FileChanged · SessionEnd")
+		ok("%s   hooks: SessionStart, SessionEnd", filepath.Base(paths.ClaudeSettings()))
 	case "Codex CLI":
 		if err := hooks.CodexInstall(bin); err != nil {
 			return err
 		}
-		ok("%s      %s", filepath.Base(paths.CodexConfig()), "SessionStart · Stop")
+		ok("%s      hooks: SessionStart, Stop", filepath.Base(paths.CodexConfig()))
 	}
 	return nil
 }

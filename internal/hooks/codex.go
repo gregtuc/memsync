@@ -15,18 +15,22 @@ const (
 )
 
 // codexBlock is the marker-delimited TOML memsync appends to config.toml.
-// NOTE: Codex's hook schema is shipped-but-lightly-documented; the exact keys
-// must be verified per codex version (see docs/codex-hooks.md). The block is
-// valid TOML regardless, and is removed verbatim on uninstall.
+// Schema verified against Codex docs: PascalCase event names, and a command
+// STRING nested in [[hooks.<Event>.hooks]] with type = "command". The Stop hook
+// program emits JSON on exit 0 (Codex requires it). See docs/codex-hooks.md.
 func codexBlock(bin string) string {
 	var b strings.Builder
 	b.WriteString(codexBegin + "\n")
 	b.WriteString("[features]\n")
 	b.WriteString("hooks = true\n\n")
-	b.WriteString("[[hooks.session_start]]\n")
-	b.WriteString(fmt.Sprintf("command = [%q, \"inject\", \"--tool\", \"codex\"]\n\n", bin))
-	b.WriteString("[[hooks.stop]]\n")
-	b.WriteString(fmt.Sprintf("command = [%q, \"sync\", \"--tool\", \"codex\"]\n", bin))
+	b.WriteString("[[hooks.SessionStart]]\n\n")
+	b.WriteString("[[hooks.SessionStart.hooks]]\n")
+	b.WriteString("type = \"command\"\n")
+	b.WriteString(fmt.Sprintf("command = %q\n\n", bin+" inject --tool codex"))
+	b.WriteString("[[hooks.Stop]]\n\n")
+	b.WriteString("[[hooks.Stop.hooks]]\n")
+	b.WriteString("type = \"command\"\n")
+	b.WriteString(fmt.Sprintf("command = %q\n", bin+" sync --tool codex"))
 	b.WriteString(codexEnd + "\n")
 	return b.String()
 }

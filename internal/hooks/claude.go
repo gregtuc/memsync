@@ -23,9 +23,12 @@ type claudeEvent struct {
 }
 
 func claudeEvents(bin string) []claudeEvent {
+	// SessionStart injects the other tool's memory; SessionEnd captures this
+	// tool's. FileChanged was dropped: its matcher accepts only literal filenames
+	// (no globs/paths), so a glob silently never fires, and the session-boundary
+	// model does not need mid-session capture.
 	return []claudeEvent{
 		{name: "SessionStart", command: []string{bin, "inject", "--tool", "claude"}},
-		{name: "FileChanged", matcher: paths.ClaudeMemoryGlob(), command: []string{bin, "sync", "--tool", "claude"}},
 		{name: "SessionEnd", command: []string{bin, "sync", "--tool", "claude"}},
 	}
 }

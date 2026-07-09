@@ -119,11 +119,21 @@ func TestCodexInstallIsIdempotentReversibleAndNonDestructive(t *testing.T) {
 		t.Fatal("codex not wired")
 	}
 	content, _ := os.ReadFile(paths.CodexConfig())
-	if n := strings.Count(string(content), codexBegin); n != 1 {
+	cs := string(content)
+	if n := strings.Count(cs, codexBegin); n != 1 {
 		t.Fatalf("want exactly 1 managed block, got %d", n)
 	}
-	if !strings.Contains(string(content), "model = \"gpt\"") {
+	if !strings.Contains(cs, "model = \"gpt\"") {
 		t.Fatal("pre-existing config lost")
+	}
+	// verified Codex schema: PascalCase events, nested [[hooks.<Event>.hooks]], string command
+	for _, want := range []string{"[[hooks.SessionStart]]", "[[hooks.SessionStart.hooks]]", "[[hooks.Stop]]", "type = \"command\""} {
+		if !strings.Contains(cs, want) {
+			t.Fatalf("codex block missing %q", want)
+		}
+	}
+	if strings.Contains(cs, "session_start") || strings.Contains(cs, "[[hooks.stop]]") {
+		t.Fatal("codex block uses invalid lowercase event names")
 	}
 
 	changed, err := CodexUninstall()
