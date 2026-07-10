@@ -92,40 +92,82 @@ func injectionContextLocked(tool string, refresh bool) (string, bool, error) {
 	if refresh {
 		refreshErr = vault.Pull() // cached context remains available offline
 	}
-	key, err := crypto.LoadKey(paths.KeyPath())
+	mems, err := collectForeignMemories(tool, true)
 	if err != nil {
 		return "", false, err
+	}
+	ctx := courier.RenderContext(injectLabel(tool), mems, injectMaxBytes)
+	if refreshErr != nil {
+		if ctx == "" {
+			return "", false, fmt.Errorf("refresh remote and no cached context is available: %w", refreshErr)
+		}
+		return ctx, true, nil
+	}
+	return ctx, false, nil
+}
+
+func injectLabel(tool string) string {
+	return "your other tools and machines"
+}
+
+// foreignMemories returns every vault memory that did NOT come from the given
+// tool on this machine (the other tool's, and other machines'), across all
+// projects. On-demand recall is deliberately not project-scoped: the agent is
+// asking, and an MCP server's working directory is not a reliable project
+// signal. It takes the vault operation lock and reads the local vault only (no
+// remote refresh); recall relies on SessionStart having refreshed the vault.
+func foreignMemories(tool string) ([]courier.Memory, error) {
+	var mems []courier.Memory
+	err := vault.WithOperationLock(func() error {
+		var err error
+		mems, err = collectForeignMemories(tool, false)
+		return err
+	})
+	return mems, err
+}
+
+// collectForeignMemories reads and decrypts the vault, returning the memories
+// that did NOT come from the receiving tool on this machine, deduped. When
+// projectScoped is true it additionally drops memories bound to a different
+// repository (used by SessionStart injection so a session only auto-loads its
+// own project's context). The caller must hold the vault operation lock.
+func collectForeignMemories(tool string, projectScoped bool) ([]courier.Memory, error) {
+	key, err := crypto.LoadKey(paths.KeyPath())
+	if err != nil {
+		return nil, err
 	}
 	dev, err := device.Load(paths.DeviceIDPath())
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-	cwd, _ := os.Getwd()
-	currentProject := project.Identify(cwd).ID
+	currentProject := ""
+	if projectScoped {
+		cwd, _ := os.Getwd()
+		currentProject = project.Identify(cwd).ID
+	}
 	files, err := vault.Records()
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-
 	var mems []courier.Memory
 	seen := map[string]bool{}
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
-			return "", false, fmt.Errorf("read encrypted record %s: %w", filepath.Base(f), err)
+			return nil, fmt.Errorf("read encrypted record %s: %w", filepath.Base(f), err)
 		}
 		plain, err := crypto.Decrypt(key, b)
 		if err != nil {
-			return "", false, fmt.Errorf("decrypt record %s: %w", filepath.Base(f), err)
+			return nil, fmt.Errorf("decrypt record %s: %w", filepath.Base(f), err)
 		}
 		var r record
 		if err := json.Unmarshal(plain, &r); err != nil {
-			return "", false, fmt.Errorf("decode record %s: %w", filepath.Base(f), err)
+			return nil, fmt.Errorf("decode record %s: %w", filepath.Base(f), err)
 		}
 		if r.Origin == tool && (r.DeviceID == "" || r.DeviceID == dev.ID) {
 			continue // don't echo this exact tool+machine's own memory back to it
 		}
-		if r.ProjectID != "" && r.ProjectID != currentProject {
+		if projectScoped && r.ProjectID != "" && r.ProjectID != currentProject {
 			continue // project-scoped memory stays with the same repository
 		}
 		identity := r.Origin + "\x00" + r.Scope + "\x00" + r.Title + "\x00" + r.Body
@@ -144,16 +186,5 @@ func injectionContextLocked(tool string, refresh bool) (string, bool, error) {
 			UpdatedAt:  r.UpdatedAt,
 		})
 	}
-	ctx := courier.RenderContext(injectLabel(tool), mems, injectMaxBytes)
-	if refreshErr != nil {
-		if ctx == "" {
-			return "", false, fmt.Errorf("refresh remote and no cached context is available: %w", refreshErr)
-		}
-		return ctx, true, nil
-	}
-	return ctx, false, nil
-}
-
-func injectLabel(tool string) string {
-	return "your other tools and machines"
+	return mems, nil
 }

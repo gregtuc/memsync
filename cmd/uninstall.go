@@ -28,6 +28,9 @@ func runUninstall(args []string) int {
 	} else {
 		ok("nothing in %s", paths.CodexConfig())
 	}
+	unregisterRecall("Claude Code")
+	unregisterRecall("Codex CLI")
+	ok("removed memsync recall MCP server (where present)")
 	if err := restoreCodexMemoryPreference(); err != nil {
 		warn("could not restore the previous Codex memory preference: %v", err)
 	}

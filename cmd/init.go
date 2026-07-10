@@ -99,12 +99,20 @@ func runInit(args []string) int {
 	if err := vault.Ensure(bin); err != nil {
 		return fail(err)
 	}
+	recallReady := false
 	for _, t := range tools {
-		if ready[t.Name] {
-			if err := wire(t.Name, bin); err != nil {
-				ready[t.Name] = false
-				issues[t.Name] = err
-			}
+		if !ready[t.Name] {
+			continue
+		}
+		if err := wire(t.Name, bin); err != nil {
+			ready[t.Name] = false
+			issues[t.Name] = err
+			continue
+		}
+		if err := registerRecall(t.Name, bin); err != nil {
+			warn("%s recall setup needs attention; run `memsync doctor`: %v", friendlyToolName(t.Name), err)
+		} else {
+			recallReady = true
 		}
 	}
 	if ready["Claude Code"] {
@@ -154,6 +162,9 @@ func runInit(args []string) int {
 	}
 	ok("Set up %s", strings.Join(connected, " and "))
 	ok("Encrypted memory sync is configured")
+	if recallReady {
+		ok("Cross-tool memory recall is available")
+	}
 	if totalFound > 0 {
 		ok("Captured %d existing memories", totalFound)
 	}

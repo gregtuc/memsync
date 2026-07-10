@@ -16,6 +16,19 @@ tools' own memory, `CLAUDE.md`, or `AGENTS.md` files.
   material. memsync can make memory available; it cannot force a model to use
   or retain it.
 
+## Recall
+
+At session start each tool receives a compact index (one line per memory) of the
+other tool's records. To read a record in full, the agent uses memsync's MCP
+recall tools:
+
+- `memory_search` finds records by keyword.
+- `memory_get` returns a record's full text.
+
+memsync registers this MCP server with each tool during setup and removes it on
+uninstall. Recall is read-only. It reaches the memories saved by your other
+tools and machines and never exposes or edits the calling tool's own memory.
+
 ## Scope and devices
 
 Every installation has a random device ID. memsync hides a tool's own local

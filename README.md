@@ -50,6 +50,9 @@ connection for you. If GitHub needs a sign-in, it tells you exactly what to do.
 
 - It quietly captures useful context after a coding session and makes relevant
   context available when the next session begins.
+- Each tool sees a short index of the other tool's memories at the start of a
+  session, and can read any of them in full on demand through memsync's
+  `memory_search` and `memory_get` tools.
 - After installation, one laptop needs no account or network. Across laptops,
   memsync uses a private encrypted sync repository.
 - It never edits either tool's own memory, `CLAUDE.md`, or `AGENTS.md` files.

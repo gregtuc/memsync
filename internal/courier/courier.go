@@ -211,7 +211,8 @@ func RenderContext(fromLabel string, mems []Memory, maxBytes int) string {
 
 	var b strings.Builder
 	b.WriteString("<!-- " + referenceMarker + " -->\n")
-	b.WriteString("### From " + fromLabel + " (reference only, may be stale; do not copy into your own memory).\n\n")
+	b.WriteString("### From " + fromLabel + " (reference only, may be stale; do not copy into your own memory).\n")
+	b.WriteString("Read any entry in full with the memsync `memory_get` tool, or find more with `memory_search`.\n\n")
 	rendered := 0
 	for _, m := range mems {
 		block := renderMemory(m)
@@ -267,6 +268,11 @@ func safeLabel(s string) string {
 	}, s)
 	return clipBytes(strings.TrimSpace(s), 60)
 }
+
+// Summarize returns the one-line summary memsync uses for a memory in the
+// injected index and in recall search results (the frontmatter description, or
+// the first real content line).
+func Summarize(body string) string { return oneLine(body) }
 
 // oneLine summarizes a note for the injected index. Memories that lead with YAML
 // frontmatter (Claude's auto-memories) are summarized by their purpose-built

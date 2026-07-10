@@ -26,9 +26,10 @@ func commands() []command {
 		{"join", "Connect this laptop to another", runJoin},
 		{"remote", "Manage the cross-machine remote (create | set <url>)", runRemote},
 		{"uninstall", "Remove memsync's hooks (--purge also clears key/vault)", runUninstall},
-		// internal, invoked by hooks:
+		// internal, invoked by hooks and MCP clients:
 		{"inject", "", runInject},
 		{"guard", "", runGuard},
+		{"mcp", "", runMCP},
 	}
 }
 

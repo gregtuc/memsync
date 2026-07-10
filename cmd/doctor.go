@@ -138,6 +138,18 @@ func runDoctor(args []string) int {
 		}
 	}
 
+	fmt.Println("\nCross-tool recall")
+	for _, t := range tools {
+		if !t.Present {
+			continue
+		}
+		if recallRegistered(t.Name) {
+			report.pass(t.Name+" recall", "memsync MCP server registered")
+		} else {
+			report.warn(t.Name+" recall", "not registered; run `memsync doctor --fix`")
+		}
+	}
+
 	fmt.Println("\nEncrypted storage")
 	key, keyErr := crypto.LoadKey(paths.KeyPath())
 	if keyErr != nil {
@@ -261,6 +273,7 @@ func repairSetup() error {
 			if err := wire(t.Name, bin); err != nil {
 				return err
 			}
+			_ = registerRecall(t.Name, bin) // additive; the recall report flags a miss
 		}
 	}
 	return nil
