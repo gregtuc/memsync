@@ -72,7 +72,11 @@ func CodexWired() (bool, error) {
 	return true, nil
 }
 
-// CodexWiredFor additionally verifies the exact current binary path and block.
+// CodexWiredFor additionally verifies memsync's hooks point at the current
+// binary. It inspects the marker region rather than matching the block verbatim:
+// once the user approves the hooks, Codex records trust as [hooks.state] tables
+// that it writes INSIDE memsync's region, and a verbatim match would wrongly read
+// that as unwired.
 func CodexWiredFor(bin string) (bool, error) {
 	wired, err := CodexWired()
 	if err != nil || !wired {
@@ -82,7 +86,12 @@ func CodexWiredFor(bin string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return strings.Contains(content, codexBlock(bin)), nil
+	_, inner, _, present, err := splitCodexRegion(content)
+	if err != nil || !present {
+		return false, err
+	}
+	return strings.Contains(inner, shellCommand(bin, "inject", "--tool", "codex")) &&
+		strings.Contains(inner, shellCommand(bin, "sync", "--tool", "codex")), nil
 }
 
 func hasMarkerLine(content, marker string) bool {
@@ -94,27 +103,40 @@ func hasMarkerLine(content, marker string) bool {
 	return false
 }
 
-// CodexInstall appends (or refreshes) memsync's managed block. Idempotent.
+// CodexInstall installs or refreshes memsync's managed block. It is idempotent:
+// when the hooks already point at bin it makes no change, so it never disturbs
+// the [hooks.state] trust records Codex writes after the user approves the hooks.
+// When a refresh is required (no block yet, or a changed binary path) it removes
+// only memsync's own tables and preserves any tool-written tables found inside
+// the region, re-emitting them after the refreshed block.
 func CodexInstall(bin string) error {
 	path := paths.CodexConfig()
+	if wired, err := CodexWiredFor(bin); err == nil && wired {
+		return nil
+	}
 	content, err := readText(path)
 	if err != nil {
 		return err
 	}
-	next, err := stripBlock(content)
+	before, inner, after, present, err := splitCodexRegion(content)
 	if err != nil {
 		return err
+	}
+	foreign := ""
+	if present {
+		foreign = foreignCodexTables(inner)
 	}
 	if err := backup(path); err != nil {
 		return err
 	}
-	if next != "" && !strings.HasSuffix(next, "\n") {
-		next += "\n"
-	}
+	next := strings.TrimRight(before+after, "\n")
 	if next != "" {
-		next += "\n"
+		next += "\n\n"
 	}
 	next += codexBlock(bin)
+	if foreign = strings.TrimSpace(foreign); foreign != "" {
+		next += "\n" + foreign + "\n"
+	}
 	return writeText(path, next)
 }
 
@@ -138,32 +160,106 @@ func CodexUninstall() (bool, error) {
 	return true, writeText(path, strings.TrimRight(next, "\n")+"\n")
 }
 
-func stripBlock(content string) (string, error) {
-	var out strings.Builder
-	inside := false
+// splitCodexRegion divides config content around memsync's managed block into
+// the text before the begin marker, the inner lines between the markers, and the
+// text after the end marker. present is false when there is no managed block.
+// Malformed markers (missing, duplicated, or out of order) are refused so memsync
+// never rewrites a config it cannot reason about.
+func splitCodexRegion(content string) (before, inner, after string, present bool, err error) {
+	const (
+		outside = iota
+		insideRegion
+		afterRegion
+	)
+	var b, in, a strings.Builder
+	state := outside
+	begins, ends := 0, 0
 	for _, line := range strings.SplitAfter(content, "\n") {
-		marker := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
-		switch marker {
+		if line == "" {
+			continue
+		}
+		switch strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r") {
 		case codexBegin:
-			if inside {
-				return "", fmt.Errorf("%s has nested memsync begin markers; refusing to edit", paths.CodexConfig())
+			begins++
+			if state != outside {
+				return "", "", "", false, fmt.Errorf("%s has a nested or duplicate memsync block; refusing to edit", paths.CodexConfig())
 			}
-			inside = true
+			state = insideRegion
+			continue
 		case codexEnd:
-			if !inside {
-				return "", fmt.Errorf("%s has an unmatched memsync end marker; refusing to edit", paths.CodexConfig())
+			ends++
+			if state != insideRegion {
+				return "", "", "", false, fmt.Errorf("%s has an unmatched memsync end marker; refusing to edit", paths.CodexConfig())
 			}
-			inside = false
+			state = afterRegion
+			continue
+		}
+		switch state {
+		case outside:
+			b.WriteString(line)
+		case insideRegion:
+			in.WriteString(line)
 		default:
-			if !inside {
-				out.WriteString(line)
-			}
+			a.WriteString(line)
 		}
 	}
-	if inside {
-		return "", fmt.Errorf("%s has an unterminated memsync block; refusing to edit", paths.CodexConfig())
+	if begins == 0 && ends == 0 {
+		return content, "", "", false, nil
 	}
-	return out.String(), nil
+	if begins != 1 || ends != 1 || state != afterRegion {
+		return "", "", "", false, fmt.Errorf("%s has an unterminated memsync block; refusing to edit", paths.CodexConfig())
+	}
+	return b.String(), in.String(), a.String(), true, nil
+}
+
+// stripBlock returns content with memsync's managed block removed.
+func stripBlock(content string) (string, error) {
+	before, _, after, present, err := splitCodexRegion(content)
+	if err != nil {
+		return "", err
+	}
+	if !present {
+		return content, nil
+	}
+	return before + after, nil
+}
+
+// foreignCodexTables returns the TOML tables inside memsync's region that memsync
+// did not write, most importantly Codex's [hooks.state] hook-trust records. It
+// classifies each line by its enclosing table header and keeps everything that is
+// not one of memsync's own hook tables, so a refresh preserves tool-written state
+// instead of silently discarding it and forcing the user to re-approve the hooks.
+func foreignCodexTables(inner string) string {
+	var out strings.Builder
+	keep := false
+	for _, line := range strings.SplitAfter(inner, "\n") {
+		if line == "" {
+			continue
+		}
+		header := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
+		if isTOMLTableHeader(header) {
+			keep = !isMemsyncCodexTable(header)
+		}
+		if keep {
+			out.WriteString(line)
+		}
+	}
+	return out.String()
+}
+
+func isTOMLTableHeader(line string) bool {
+	return strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]")
+}
+
+// isMemsyncCodexTable reports whether header is one of the array-of-tables that
+// codexBlock emits. Keep this in sync with codexBlock.
+func isMemsyncCodexTable(header string) bool {
+	switch header {
+	case "[[hooks.SessionStart]]", "[[hooks.SessionStart.hooks]]",
+		"[[hooks.Stop]]", "[[hooks.Stop.hooks]]":
+		return true
+	}
+	return false
 }
 
 func readText(path string) (string, error) {

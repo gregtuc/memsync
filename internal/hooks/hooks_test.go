@@ -290,6 +290,64 @@ func TestCodexInstallPreservesExistingHookTrustState(t *testing.T) {
 	}
 }
 
+// Regression: after the user approves the hooks in `/hooks`, Codex records trust
+// as a [hooks.state] table that it writes INSIDE memsync's managed block. That
+// must neither be read as "not configured" nor destroyed by a later refresh
+// (either would silently revoke the approval and loop the user through it again).
+func TestCodexToleratesAndPreservesToolStateInsideManagedBlock(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const bin = "/x/memsync"
+	if err := CodexInstall(bin); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := os.ReadFile(paths.CodexConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate Codex inserting its trust record just before the end marker.
+	const trust = "[hooks.state]\n\n[hooks.state.\"config.toml:stop:0:0\"]\ntrusted_hash = \"sha256:deadbeef\"\n"
+	injected := strings.Replace(string(installed), codexEnd, trust+codexEnd, 1)
+	if injected == string(installed) {
+		t.Fatal("could not inject trust state before the end marker")
+	}
+	if err := os.WriteFile(paths.CodexConfig(), []byte(injected), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Detection must still consider the hooks wired for this binary.
+	if wired, err := CodexWiredFor(bin); err != nil || !wired {
+		t.Fatalf("tool-written [hooks.state] inside the block broke detection: wired=%v err=%v", wired, err)
+	}
+
+	// A refresh onto a new binary path must rewrite memsync's block yet keep the
+	// tool's trust record intact.
+	const newBin = "/opt/memsync/memsync"
+	if err := CodexInstall(newBin); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := os.ReadFile(paths.CodexConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(refreshed)
+	if !strings.Contains(got, `trusted_hash = "sha256:deadbeef"`) || !strings.Contains(got, "[hooks.state]") {
+		t.Fatalf("refresh destroyed tool-written hook trust state:\n%s", got)
+	}
+	if n := strings.Count(got, codexBegin); n != 1 {
+		t.Fatalf("want exactly 1 managed block after refresh, got %d", n)
+	}
+	if wired, err := CodexWiredFor(newBin); err != nil || !wired {
+		t.Fatalf("not wired for the new binary after refresh: wired=%v err=%v", wired, err)
+	}
+	if strings.Contains(got, shellCommand(bin, "inject", "--tool", "codex")) {
+		t.Fatalf("stale binary command survived the refresh:\n%s", got)
+	}
+}
+
 func TestCodexRefusesMalformedManagedMarkersWithoutChangingConfig(t *testing.T) {
 	for name, malformed := range map[string]string{
 		"missing end":  "model = \"gpt\"\n" + codexBegin + "\nunrelated = true\n",
