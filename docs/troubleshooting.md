@@ -24,15 +24,21 @@ setup, run `memsync doctor --fix` first and review the refreshed definitions.
 
 ## Codex contributes zero memories
 
-Codex Memories is off by default and generated asynchronously. Enable it with:
+Normal setup enables the Codex memory source automatically. If you explicitly
+disable it later, memsync preserves that preference across upgrades and repair.
+To turn it back on:
 
 ```sh
 memsync init --enable-codex-memories
 ```
 
+Advanced: this Codex background source can use a small amount of Codex quota.
+To keep it off while still receiving Claude memory, run
+`memsync init --no-codex-memories`. memsync remembers that preference across
+upgrades and repair.
+
 Do a few eligible Codex tasks, allow them to become idle, and check again later.
-The feature may use a small amount of Codex quota. Claude → Codex delivery can
-still work while Codex Memories is off.
+Claude → Codex delivery can still work while this source is off.
 
 ## Claude says hooks are disabled
 

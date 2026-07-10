@@ -13,6 +13,7 @@ the vault working tree.
 | memsync record contents | Plaintext only while being processed in memory | AES-256-GCM ciphertext (`*.enc`) |
 | Vault key | `~/.config/memsync/key`, directory `0700`, file `0600` | Never committed to the Git vault |
 | Device identity | `~/.config/memsync/device-id`, file `0600` | Included only inside encrypted records |
+| Unfinished pairing state | `~/.config/memsync/join-state.json`, file `0600`, removed after success | Never leaves the joining laptop |
 | Vault control data | Local Git metadata | The managed `.gitattributes` file and ordinary Git metadata are plaintext |
 
 Every paired laptop stores the same vault key. Pairing transports that key from
@@ -59,10 +60,13 @@ who deliberately bypasses Git hooks is outside this guarantee.
 
 ## Pairing and authenticity
 
-Pairing creates a temporary X25519 key pair on the joining laptop. The existing
-laptop derives a wrapping key for that public invite and seals the vault key and
-remote URL with AES-GCM. Only the holder of the temporary private key can open
-the reply.
+Pairing creates a temporary X25519 key pair on the joining laptop. Until the
+join succeeds, its private half and the encrypted reply are kept in a private
+local state file so a sign-in or network failure can resume without repeating
+the exchange. The state file is deleted after success and never leaves that
+laptop. The existing laptop derives a wrapping key for the public invite and
+seals the vault key and remote URL with AES-GCM. Only the holder of the temporary
+private key can open the reply.
 
 The invite is public, but **public does not mean self-authenticating**. If an
 attacker can replace it before it reaches the existing laptop, that laptop can

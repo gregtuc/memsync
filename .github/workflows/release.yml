@@ -43,6 +43,7 @@ jobs:
           fi
           go vet ./...
           go test -race ./...
+          sh tests/install_test.sh
 
       - name: Build release archives
         env:
@@ -59,9 +60,10 @@ jobs:
               go build -trimpath \
                 -ldflags "-s -w -X github.com/gregtuc/memsync/cmd.Version=$VERSION" \
                 -o "$stage/memsync" .
-            cp LICENSE README.md "$stage/"
+            cp LICENSE README.md SECURITY.md "$stage/"
+            cp -R docs "$stage/"
             tar -C "$stage" -czf "dist/memsync_${VERSION}_${os}_${arch}.tar.gz" \
-              memsync LICENSE README.md
+              memsync LICENSE README.md SECURITY.md docs
             rm -rf "$stage"
           done
           (cd dist && sha256sum memsync_*.tar.gz > checksums.txt)
@@ -76,7 +78,9 @@ jobs:
             for arch in amd64 arm64; do
               archive="dist/memsync_${VERSION}_${os}_${arch}.tar.gz"
               test -f "$archive"
-              tar -tzf "$archive" | grep -qx 'memsync'
+              # Do not use grep -q here: with pipefail it can close the pipe
+              # early and make tar fail with SIGPIPE even for a valid archive.
+              tar -tzf "$archive" | grep -x 'memsync' >/dev/null
             done
           done
           test "$(wc -l < dist/checksums.txt | tr -d ' ')" = "4"

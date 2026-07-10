@@ -21,6 +21,28 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestIdentityCanResumeAnUnfinishedJoin(t *testing.T) {
+	original, err := NewIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := RestoreIdentity(original.PrivateBytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Invite() != original.Invite() {
+		t.Fatal("restored identity produced a different invite")
+	}
+	reply, err := Seal(original.Invite(), []byte("resume me"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := restored.Open(reply)
+	if err != nil || string(plain) != "resume me" {
+		t.Fatalf("restored identity could not open reply: %q, %v", plain, err)
+	}
+}
+
 func TestWrongIdentityCannotOpen(t *testing.T) {
 	joiner, _ := NewIdentity()
 	attacker, _ := NewIdentity()

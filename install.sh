@@ -4,14 +4,14 @@
 # Latest release:
 #   curl -fsSL https://raw.githubusercontent.com/gregtuc/memsync/main/install.sh | sh
 # Pinned release:
-#   curl -fsSL https://raw.githubusercontent.com/gregtuc/memsync/main/install.sh | sh -s -- v0.1.0
+#   curl -fsSL https://raw.githubusercontent.com/gregtuc/memsync/main/install.sh | sh -s -- v0.1.1
 set -eu
 
 REPO="gregtuc/memsync"
 REQUESTED_VERSION="${1:-latest}"
 BINDIR="${MEMSYNC_BINDIR:-$HOME/.local/bin}"
 
-for command in curl tar awk sed install; do
+for command in curl tar awk sed install git mktemp mv; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "error: required command not found: $command" >&2
     exit 1
@@ -26,6 +26,16 @@ case "$(uname -s)" in
     exit 1
     ;;
 esac
+
+if ! git --version >/dev/null 2>&1; then
+  echo "error: Git is installed but is not ready" >&2
+  if [ "$os" = "darwin" ]; then
+    echo "Run: xcode-select --install" >&2
+  else
+    echo "Install Git with your system package manager, then retry." >&2
+  fi
+  exit 1
+fi
 
 case "$(uname -m)" in
   x86_64|amd64) arch="amd64" ;;
@@ -69,7 +79,8 @@ esac
 archive="memsync_${version}_${os}_${arch}.tar.gz"
 base_url="https://github.com/$REPO/releases/download/$tag"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+staged_bin=""
+trap 'rm -rf "$tmp"; [ -z "${staged_bin:-}" ] || rm -f "$staged_bin"' EXIT HUP INT TERM
 
 echo "Downloading memsync $version for $os/$arch..."
 curl -fsSL --retry 3 --connect-timeout 10 \
@@ -100,15 +111,132 @@ echo "Checksum verified."
 
 tar -xzf "$tmp/$archive" -C "$tmp" memsync
 mkdir -p "$BINDIR"
-install -m 0755 "$tmp/memsync" "$BINDIR/memsync"
+staged_bin="$(mktemp "$BINDIR/.memsync.install.XXXXXX")"
+install -m 0755 "$tmp/memsync" "$staged_bin"
+mv -f "$staged_bin" "$BINDIR/memsync"
+staged_bin=""
 
 echo "Installed $BINDIR/memsync"
 "$BINDIR/memsync" --version
 
 case ":$PATH:" in
-  *":$BINDIR:"*) echo "Next: memsync init" ;;
+  *":$BINDIR:"*) ;;
   *)
-    echo "Next: $BINDIR/memsync init"
-    echo "Tip: add $BINDIR to PATH to run memsync from anywhere."
+    shell_path="${SHELL:-/bin/sh}"
+    shell_name="${shell_path##*/}"
+    path_configured=0
+    path_style="posix"
+    case "$shell_name" in
+      zsh)
+        zsh_startup_dir="${ZDOTDIR:-}"
+        if [ -z "$zsh_startup_dir" ] && [ -x "$shell_path" ]; then
+          zsh_startup_dir="$(HOME="$HOME" "$shell_path" -c \
+            'print -r -- "${ZDOTDIR:-$HOME}"' 2>/dev/null | sed -n '$p')"
+        fi
+        if [ -n "$zsh_startup_dir" ]; then
+          profile="$zsh_startup_dir/.zshrc"
+        else
+          profile=""
+        fi
+        ;;
+      bash)
+        if [ "$os" = "darwin" ]; then
+          if [ -e "$HOME/.bash_profile" ]; then
+            profile="$HOME/.bash_profile"
+          elif [ -e "$HOME/.bash_login" ]; then
+            profile="$HOME/.bash_login"
+          elif [ -e "$HOME/.profile" ]; then
+            profile="$HOME/.profile"
+          else
+            profile="$HOME/.bash_profile"
+          fi
+        else
+          profile="$HOME/.bashrc"
+        fi
+        ;;
+      fish)
+        if ! MEMSYNC_INSTALL_PATH="$BINDIR" "$shell_path" -c \
+          'fish_add_path -U "$MEMSYNC_INSTALL_PATH"'; then
+          echo "error: could not add $BINDIR to the fish PATH" >&2
+          exit 1
+        fi
+        profile=""
+        path_configured=1
+        ;;
+      csh|tcsh)
+        profile="$HOME/.cshrc"
+        path_style="csh"
+        ;;
+      sh|dash|ksh)
+        profile="$HOME/.profile"
+        ;;
+      *)
+        profile=""
+        ;;
+    esac
+
+    if [ -n "$profile" ]; then
+      if [ "$path_style" = "csh" ]; then
+        if [ "$BINDIR" = "$HOME/.local/bin" ]; then
+          path_line='setenv PATH "$HOME/.local/bin":$PATH # added by memsync'
+        else
+          profile=""
+        fi
+      else
+        case "$BINDIR" in
+          "$HOME/.local/bin")
+            path_line='export PATH="$HOME/.local/bin:$PATH" # added by memsync'
+            ;;
+          *)
+            escaped_bindir="$(printf '%s' "$BINDIR" | sed "s/'/'\\\\''/g")"
+            path_line="export PATH='$escaped_bindir':\$PATH # added by memsync"
+            ;;
+        esac
+      fi
+    fi
+
+    if [ -n "$profile" ]; then
+      path_present=0
+      if [ -f "$profile" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+          if [ "$line" = "$path_line" ]; then
+            path_present=1
+            break
+          fi
+        done < "$profile"
+      fi
+      if [ "$path_present" -eq 0 ]; then
+        profile_dir="${profile%/*}"
+        if ! mkdir -p "$profile_dir"; then
+          echo "error: could not create the shell config directory $profile_dir" >&2
+          exit 1
+        fi
+        if [ -s "$profile" ] && ! printf '\n' >> "$profile"; then
+          echo "error: could not update PATH in $profile" >&2
+          exit 1
+        fi
+        if ! printf '%s\n' "$path_line" >> "$profile"; then
+          echo "error: could not add $BINDIR to PATH in $profile" >&2
+          exit 1
+        fi
+      fi
+      path_configured=1
+    fi
+    PATH="$BINDIR:$PATH"
+    export PATH
+    if [ "$path_configured" -eq 1 ]; then
+      echo "memsync is available in new terminals."
+    else
+      echo "memsync is installed at $BINDIR/memsync."
+      echo "Add $BINDIR to PATH to use it by name in $shell_name."
+    fi
     ;;
 esac
+
+if [ "${MEMSYNC_SKIP_INIT:-0}" != "1" ]; then
+  if ! "$BINDIR/memsync" init; then
+    echo "error: memsync was installed, but automatic setup needs attention" >&2
+    echo "Retry with: $BINDIR/memsync init" >&2
+    exit 1
+  fi
+fi

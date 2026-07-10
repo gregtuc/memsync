@@ -48,7 +48,9 @@ type CodexFeatures struct {
 func DetectCodexFeatures() CodexFeatures {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "codex", "features", "list").CombinedOutput()
+	command := exec.CommandContext(ctx, "codex", "features", "list")
+	command.WaitDelay = 500 * time.Millisecond
+	out, err := command.CombinedOutput()
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
 		if len(detail) > 500 {

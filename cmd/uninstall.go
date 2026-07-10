@@ -28,6 +28,9 @@ func runUninstall(args []string) int {
 	} else {
 		ok("nothing in %s", paths.CodexConfig())
 	}
+	if err := restoreCodexMemoryPreference(); err != nil {
+		warn("could not restore the previous Codex memory preference: %v", err)
+	}
 
 	if !purge {
 		fmt.Println("\nLeft in place (re-init with no data loss):")

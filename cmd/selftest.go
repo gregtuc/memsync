@@ -38,17 +38,13 @@ func selfTest() error {
 	if !bytes.Equal(back, canary) {
 		return fmt.Errorf("canary did not survive encrypt/decrypt")
 	}
-	ok("encrypt → decrypt round-trip verified")
-
 	if err := vault.GuardTree(key); err != nil {
 		return err
 	}
-	ok("vault guard passed (working tree is ciphertext-only)")
 
 	_ = courier.RenderContext("Codex", []courier.Memory{
 		{Origin: "codex", Scope: "global", Title: "canary", Body: "hello from the other tool"},
 	}, 4096)
-	ok("cross-tool context render OK")
 
 	// Exercise the actual encrypted-record -> decrypt -> filtering -> hook JSON
 	// path without reading or writing either agent's own memory store.
@@ -90,6 +86,5 @@ func selfTest() error {
 	}); err != nil {
 		return err
 	}
-	ok("encrypted vault → SessionStart payload verified")
 	return nil
 }

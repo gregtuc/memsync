@@ -8,7 +8,7 @@ import (
 )
 
 // Version is overridden at build time via -ldflags.
-var Version = "0.1.0-dev"
+var Version = "0.1.1-dev"
 
 type command struct {
 	name    string
@@ -18,12 +18,12 @@ type command struct {
 
 func commands() []command {
 	return []command{
-		{"init", "Detect tools, wire hooks, make key + local vault, self-test", runInit},
+		{"init", "Set up this laptop", runInit},
 		{"doctor", "Diagnose setup (--fix repairs safe local state)", runDoctor},
-		{"status", "Show what's synced right now", runStatus},
+		{"status", "Show current setup", runStatus},
 		{"sync", "Capture local memories and sync now", runSync},
-		{"pair", "Machine 1: add a second machine", runPair},
-		{"join", "Machine 2: join an existing vault", runJoin},
+		{"pair", "Add another laptop", runPair},
+		{"join", "Connect this laptop to another", runJoin},
 		{"remote", "Manage the cross-machine remote (create | set <url>)", runRemote},
 		{"uninstall", "Remove memsync's hooks (--purge also clears key/vault)", runUninstall},
 		// internal, invoked by hooks:
@@ -59,7 +59,7 @@ func Execute(args []string) int {
 func commandUsage(name string) {
 	switch name {
 	case "init":
-		fmt.Println("Usage: memsync init [--dry-run] [--enable-codex-memories | --no-codex-memories]")
+		fmt.Println("Usage: memsync init [--dry-run]")
 	case "doctor":
 		fmt.Println("Usage: memsync doctor [--fix]")
 	case "status":

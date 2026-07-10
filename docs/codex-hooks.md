@@ -50,14 +50,9 @@ Codex hooks are enabled by default. If the effective `hooks` feature is
 explicitly disabled, `memsync init` enables it and `memsync doctor` reports a
 remaining problem.
 
-Codex **Memories** is a separate, opt-in feature. It is not required to receive
-Claude memory, but it is required for Codex to contribute memory to Claude or
-another laptop. Interactive setup asks before enabling it; unattended setup can
-use:
-
-```sh
-memsync init --enable-codex-memories
-```
+Codex **Memories** is a separate feature used when Codex contributes context to
+Claude or another laptop. `memsync init` enables it automatically as part of
+connecting Codex; no separate setup choice is required.
 
 Codex generates memory in the background after eligible work becomes idle, so
 the supported files under `~/.codex/memories/` may not appear immediately. A

@@ -58,6 +58,9 @@ func TestEndToEndTwoMachinesPairAndShareBothTools(t *testing.T) {
 	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	projectRemote := filepath.Join(root, "project.git")
+	vaultRemote := filepath.Join(root, "vault.git")
+	fakeGHState := filepath.Join(root, "gh-created")
 	claudeScript := "#!/bin/sh\necho 'Claude Code test'\n"
 	codexScript := `#!/bin/sh
 if [ "$1" = "--version" ]; then
@@ -69,14 +72,29 @@ else
   exit 0
 fi
 `
-	for name, script := range map[string]string{"claude": claudeScript, "codex": codexScript} {
+	ghScript := `#!/bin/sh
+if [ "$1 $2" = "auth status" ] || [ "$1 $2" = "auth setup-git" ]; then
+  exit 0
+elif [ "$1 $2" = "api user" ]; then
+  echo 'test-user'
+elif [ "$1 $2" = "repo view" ]; then
+  if [ ! -f "$FAKE_GH_STATE" ]; then
+    echo 'GraphQL: Could not resolve to a Repository' >&2
+    exit 1
+  fi
+  printf '{"isPrivate":true,"isEmpty":true,"url":"%s"}\n' "$FAKE_GH_REMOTE"
+elif [ "$1 $2" = "repo create" ]; then
+  touch "$FAKE_GH_STATE"
+else
+  exit 1
+fi
+`
+	for name, script := range map[string]string{"claude": claudeScript, "codex": codexScript, "gh": ghScript} {
 		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	projectRemote := filepath.Join(root, "project.git")
-	vaultRemote := filepath.Join(root, "vault.git")
 	for _, remote := range []string{projectRemote, vaultRemote} {
 		runE2EGit(t, root, "init", "--bare", "-q", remote)
 		runE2EGit(t, remote, "symbolic-ref", "HEAD", "refs/heads/main")
@@ -111,6 +129,8 @@ fi
 			"XDG_CONFIG_HOME="+filepath.Join(home, "cfg"),
 			"XDG_DATA_HOME="+filepath.Join(home, "data"),
 			"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"FAKE_GH_REMOTE="+vaultRemote,
+			"FAKE_GH_STATE="+fakeGHState,
 			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.invalid",
 			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.invalid",
 		)
@@ -119,12 +139,9 @@ fi
 	a := newMachine("a", "CLAUDE-A-CROSS-DEVICE", "CODEX-A-CROSS-DEVICE")
 	b := newMachine("b", "CLAUDE-B-LOCAL", "CODEX-B-LOCAL")
 	for _, machine := range []e2eMachine{a, b} {
-		if out, err := machine.run("", "init", "--no-codex-memories"); err != nil {
+		if out, err := machine.run("", "init"); err != nil {
 			t.Fatalf("init %s: %v\n%s", machine.home, err, out)
 		}
-	}
-	if out, err := a.run("", "remote", "set", vaultRemote); err != nil {
-		t.Fatalf("remote set: %v\n%s", err, out)
 	}
 
 	join := exec.Command(bin, "join")
@@ -143,9 +160,17 @@ fi
 	joinDone := make(chan error, 1)
 	go func() { joinDone <- join.Wait() }()
 	invite := waitForToken(t, &joinOutput, joinDone, "msync-invite-", 10*time.Second)
-	pairOut, err := a.run(invite+"\n", "pair", "--yes")
+	pairOut, err := a.run(invite+"\nyes\n", "pair")
 	if err != nil {
 		t.Fatalf("pair: %v\n%s", err, pairOut)
+	}
+	if !strings.Contains(pairOut, "Reply code:") || !strings.Contains(pairOut, "Private sync is ready") {
+		t.Fatalf("pair output did not present the simple happy path:\n%s", pairOut)
+	}
+	for _, unwanted := range []string{"Sealed reply", "private repo set as origin", "vault pushed"} {
+		if strings.Contains(pairOut, unwanted) {
+			t.Fatalf("pair output exposed implementation detail %q:\n%s", unwanted, pairOut)
+		}
 	}
 	reply := tokenWithPrefix(pairOut, "msync-reply-")
 	if reply == "" {
@@ -163,6 +188,20 @@ fi
 	case <-time.After(25 * time.Second):
 		_ = join.Process.Kill()
 		t.Fatalf("join timed out:\n%s", joinOutput.String())
+	}
+	joinText := joinOutput.String()
+	for _, want := range []string{"Connecting this laptop", "This laptop is set up", "When Codex asks, approve memsync to finish"} {
+		if !strings.Contains(joinText, want) {
+			t.Fatalf("join output missing %q:\n%s", want, joinText)
+		}
+	}
+	for _, unwanted := range []string{"sealed reply", "every record decrypts", "key adopted", "vault cloned", "guards installed", "/hooks"} {
+		if strings.Contains(joinText, unwanted) {
+			t.Fatalf("join output exposed implementation detail %q:\n%s", unwanted, joinText)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(b.home, "cfg", "memsync", "join-state.json")); !os.IsNotExist(err) {
+		t.Fatalf("successful join left temporary pairing state behind: %v", err)
 	}
 
 	// Public sync must pull remote-only changes even when A has nothing new.

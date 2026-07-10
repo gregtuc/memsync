@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gregtuc/memsync/internal/crypto"
@@ -59,5 +60,59 @@ func TestActivateRemoteRollsBackFailedCandidate(t *testing.T) {
 	}
 	if got := vault.RemoteURL(); got != oldRemote {
 		t.Fatalf("credential rejection changed origin: got %q want %q", got, oldRemote)
+	}
+}
+
+func TestGitHubHTTPSAuthSetup(t *testing.T) {
+	if !isGitHubHTTPS("https://github.com/example/memsync-vault") {
+		t.Fatal("GitHub HTTPS URL was not recognized")
+	}
+	for _, rawURL := range []string{
+		"git@github.com:example/memsync-vault.git",
+		"https://gitlab.com/example/memsync-vault",
+		filepath.Join(t.TempDir(), "vault.git"),
+	} {
+		if isGitHubHTTPS(rawURL) {
+			t.Fatalf("non-GitHub-HTTPS URL was recognized: %q", rawURL)
+		}
+	}
+
+	fakeBin := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "gh.log")
+	gh := filepath.Join(fakeBin, "gh")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$GH_LOG\"\nexit 0\n"
+	if err := os.WriteFile(gh, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_LOG", logPath)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := ensureGitHubCLIAuth(); err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(log)
+	for _, want := range []string{
+		"auth status --hostname github.com",
+		"auth setup-git --hostname github.com",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("GitHub setup did not run %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestGitHubHTTPSAuthMissingCLIHasExactRecovery(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	err := ensureGitHubCLIAuth()
+	if err == nil {
+		t.Fatal("missing GitHub CLI was accepted")
+	}
+	for _, want := range []string{"https://cli.github.com", "gh auth login --web --git-protocol https"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing-CLI guidance lacks %q: %v", want, err)
+		}
 	}
 }

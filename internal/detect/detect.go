@@ -3,9 +3,9 @@ package detect
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gregtuc/memsync/internal/paths"
@@ -21,7 +21,19 @@ type Tool struct {
 
 // All returns the tools memsync knows how to bridge.
 func All() []Tool {
-	return []Tool{claude(), codex()}
+	tools := make([]Tool, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		tools[0] = claude()
+	}()
+	go func() {
+		defer wg.Done()
+		tools[1] = codex()
+	}()
+	wg.Wait()
+	return tools
 }
 
 func claude() Tool {
@@ -29,7 +41,7 @@ func claude() Tool {
 	return Tool{
 		Name:    "Claude Code",
 		Home:    dir,
-		Present: isDir(dir) || hasExecutable("claude"),
+		Present: hasExecutable("claude"),
 		Version: version("claude", "--version"),
 	}
 }
@@ -39,14 +51,9 @@ func codex() Tool {
 	return Tool{
 		Name:    "Codex CLI",
 		Home:    dir,
-		Present: isDir(dir) || hasExecutable("codex"),
+		Present: hasExecutable("codex"),
 		Version: version("codex", "--version"),
 	}
-}
-
-func isDir(p string) bool {
-	info, err := os.Stat(p)
-	return err == nil && info.IsDir()
 }
 
 func hasExecutable(name string) bool {
@@ -61,7 +68,9 @@ func version(bin string, args ...string) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, args...).Output()
+	command := exec.CommandContext(ctx, bin, args...)
+	command.WaitDelay = 500 * time.Millisecond
+	out, err := command.Output()
 	if err != nil {
 		return ""
 	}

@@ -5,7 +5,26 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestFeatureProbeCannotHangOnInheritedPipe(t *testing.T) {
+	fakeBin := t.TempDir()
+	codex := filepath.Join(fakeBin, "codex")
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	if err := os.WriteFile(codex, []byte("#!/bin/sh\n/bin/sleep 30 &\necho $! > \"$CHILD_PID_FILE\"\necho 'hooks stable true'\necho 'memories experimental true'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin)
+	t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), ".codex"))
+	t.Setenv("CHILD_PID_FILE", pidFile)
+	t.Cleanup(func() { killRecordedChild(pidFile) })
+	started := time.Now()
+	_ = DetectCodexFeatures()
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("Codex feature detection exceeded its bound: %s", elapsed)
+	}
+}
 
 func TestParseCodexFeatureList(t *testing.T) {
 	output := `apply_patch_freeform                 removed            false

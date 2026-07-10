@@ -38,6 +38,22 @@ func NewIdentity() (*Identity, error) {
 	return &Identity{priv}, nil
 }
 
+// RestoreIdentity recreates an unfinished joining identity from private bytes
+// stored locally on the joining machine.
+func RestoreIdentity(privateKey []byte) (*Identity, error) {
+	priv, err := ecdh.X25519().NewPrivateKey(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid saved pairing identity: %w", err)
+	}
+	return &Identity{priv}, nil
+}
+
+// PrivateBytes returns a copy suitable for persisting an unfinished join with
+// private file permissions. It must never be sent to the other machine.
+func (id *Identity) PrivateBytes() []byte {
+	return append([]byte(nil), id.priv.Bytes()...)
+}
+
 // Invite is the public token the joining machine shares (safe over any channel).
 func (id *Identity) Invite() string {
 	return invitePrefix + b64(id.priv.PublicKey().Bytes())

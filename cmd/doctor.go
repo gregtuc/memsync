@@ -91,8 +91,10 @@ func runDoctor(args []string) int {
 				} else {
 					report.pass("Codex memories", fmt.Sprintf("enabled · %d consolidated source", len(mems)))
 				}
+			} else if codexMemoriesOptedOut() {
+				report.warn("Codex memories", "off by preference")
 			} else {
-				report.warn("Codex memories", "off; Codex → other tools is waiting. Run `memsync init --enable-codex-memories`")
+				report.warn("Codex memories", "off; run `memsync init` to restore the normal setup")
 			}
 		}
 	}
@@ -249,6 +251,9 @@ func repairSetup() error {
 			if err := setCodexFeature("hooks", true); err != nil {
 				return err
 			}
+		}
+		if err := configureCodexMemories(features.Memories, nil); err != nil {
+			return err
 		}
 	}
 	for _, t := range tools {

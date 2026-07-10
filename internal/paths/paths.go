@@ -38,6 +38,14 @@ func KeyPath() string { return filepath.Join(ConfigDir(), "key") }
 // machine can be distinguished from local echoes.
 func DeviceIDPath() string { return filepath.Join(ConfigDir(), "device-id") }
 
+// JoinStatePath holds the private, local-only state for an interrupted laptop
+// pairing so authentication or network failures do not require starting over.
+func JoinStatePath() string { return filepath.Join(ConfigDir(), "join-state.json") }
+
+// CodexMemoryStatePath records whether memsync enabled Codex's memory source,
+// so later upgrades preserve an explicit disable and uninstall can restore it.
+func CodexMemoryStatePath() string { return filepath.Join(ConfigDir(), "codex-memory-state") }
+
 // VaultDir is the ciphertext-only git repo that crosses machines.
 func VaultDir() string { return filepath.Join(DataDir(), "vault") }
 

@@ -21,7 +21,14 @@ func TestEndToEndSingleMachine(t *testing.T) {
 
 	home := t.TempDir()
 	cwd := filepath.Join(home, "workspace")
+	fakeBin := filepath.Join(home, "bin")
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, "claude"), []byte("#!/bin/sh\necho 'Claude Code test'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
@@ -31,6 +38,7 @@ func TestEndToEndSingleMachine(t *testing.T) {
 		"HOME="+home,
 		"XDG_CONFIG_HOME="+filepath.Join(home, "cfg"),
 		"XDG_DATA_HOME="+filepath.Join(home, "data"),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e.co",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e.co",
 	)
@@ -51,6 +59,16 @@ func TestEndToEndSingleMachine(t *testing.T) {
 
 	if out, err := run("init"); err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
+	}
+	status, err := run("status")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, status)
+	}
+	if strings.Contains(status, "✗ Codex") {
+		t.Fatalf("Claude-only setup reported absent Codex as broken:\n%s", status)
+	}
+	if !strings.Contains(status, "`memsync join`") || !strings.Contains(status, "`memsync pair`") || strings.Contains(status, "remote create") {
+		t.Fatalf("status contradicted the simple two-laptop flow:\n%s", status)
 	}
 	if out, err := run("sync", "--tool", "claude"); err != nil {
 		t.Fatalf("sync: %v\n%s", err, out)
@@ -113,7 +131,7 @@ func TestEndToEndSingleMachine(t *testing.T) {
 	}
 }
 
-func TestInitClearlyExplainsCodexMemoryAndHookTrust(t *testing.T) {
+func TestInitIsZeroConfigurationAndConcise(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "memsync")
 	if out, err := exec.Command("go", "build", "-o", bin, "github.com/gregtuc/memsync").CombinedOutput(); err != nil {
 		t.Fatalf("build failed: %v\n%s", err, out)
@@ -131,9 +149,11 @@ func TestInitClearlyExplainsCodexMemoryAndHookTrust(t *testing.T) {
 if [ "$1" = "--version" ]; then
   echo 'codex-cli 1.0.0'
 elif [ "$1" = "features" ] && [ "$2" = "list" ]; then
+  [ -d "$CODEX_HOME" ] || { echo 'missing CODEX_HOME' >&2; exit 1; }
   echo 'hooks stable true'
   echo 'memories experimental false'
 elif [ "$1" = "features" ] && [ "$2" = "enable" ]; then
+  echo "$3" >> "$FEATURE_LOG"
   exit 0
 else
   exit 0
@@ -150,6 +170,7 @@ fi
 		"XDG_CONFIG_HOME="+filepath.Join(home, "cfg"),
 		"XDG_DATA_HOME="+filepath.Join(home, "data"),
 		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"FEATURE_LOG="+filepath.Join(home, "features-enabled"),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e.co",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e.co",
 	)
@@ -162,13 +183,116 @@ fi
 	}
 	text := string(out)
 	for _, want := range []string{
-		"One Codex security step remains",
-		"Review hooks",
-		"Codex → Claude is waiting because Codex Memories is off",
-		"memsync init --enable-codex-memories",
+		"Set up Claude Code and Codex",
+		"Encrypted memory sync is configured",
+		"When Codex asks, approve memsync to finish",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("init output missing %q:\n%s", want, text)
+		}
+	}
+	for _, unwanted := range []string{"Codex Memories", "SessionStart", "SessionEnd", ".codex", "device-id", "memsync status"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("init output exposed implementation detail %q:\n%s", unwanted, text)
+		}
+	}
+	enabled, err := os.ReadFile(filepath.Join(home, "features-enabled"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(enabled)) != "memories" {
+		t.Fatalf("zero-config init did not enable Codex's memory source: %q", enabled)
+	}
+	if lines := len(strings.Split(strings.TrimSpace(text), "\n")); lines > 8 {
+		t.Fatalf("init output is still too noisy (%d lines):\n%s", lines, text)
+	}
+
+	// A broken Codex setup must not prevent an otherwise healthy Claude setup.
+	brokenCodex := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo codex-test; else echo 'bad Codex config' >&2; exit 1; fi\n"
+	if err := os.WriteFile(filepath.Join(fakeBin, "codex"), []byte(brokenCodex), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secondHome := t.TempDir()
+	secondCWD := filepath.Join(secondHome, "workspace")
+	if err := os.MkdirAll(secondCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	second := exec.Command(bin, "init")
+	second.Dir = secondCWD
+	second.Env = append(os.Environ(),
+		"HOME="+secondHome,
+		"CODEX_HOME="+filepath.Join(secondHome, ".codex"),
+		"XDG_CONFIG_HOME="+filepath.Join(secondHome, "cfg"),
+		"XDG_DATA_HOME="+filepath.Join(secondHome, "data"),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+	secondOut, err := second.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Claude setup was blocked by broken Codex: %v\n%s", err, secondOut)
+	}
+	if !strings.Contains(string(secondOut), "Set up Claude Code") || !strings.Contains(string(secondOut), "Codex needs attention") {
+		t.Fatalf("per-tool degradation is unclear:\n%s", secondOut)
+	}
+}
+
+func TestInitDoesNotClaimReadyWhenMemorySourceFails(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "memsync")
+	if out, err := exec.Command("go", "build", "-o", bin, "github.com/gregtuc/memsync").CombinedOutput(); err != nil {
+		t.Fatalf("build failed: %v\n%s", err, out)
+	}
+
+	home := t.TempDir()
+	cwd := filepath.Join(home, "workspace")
+	fakeBin := filepath.Join(home, "bin")
+	for _, dir := range []string{cwd, fakeBin} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = resolved
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, "claude"), []byte("#!/bin/sh\necho claude-test\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gitPath, filepath.Join(fakeBin, "git")); err != nil {
+		t.Fatal(err)
+	}
+
+	// A file where Claude's memory directory should be forces CollectClaudeAt
+	// to return a source error instead of a valid empty snapshot.
+	encodedCWD := strings.ReplaceAll(filepath.Clean(cwd), string(filepath.Separator), "-")
+	memdir := filepath.Join(home, ".claude", "projects", encodedCWD, "memory")
+	if err := os.MkdirAll(filepath.Dir(memdir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(memdir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(bin, "init")
+	cmd.Dir = cwd
+	cmd.Env = append(os.Environ(),
+		"HOME="+home,
+		"XDG_CONFIG_HOME="+filepath.Join(home, "cfg"),
+		"XDG_DATA_HOME="+filepath.Join(home, "data"),
+		"PATH="+fakeBin,
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("init succeeded despite an unreadable memory source:\n%s", out)
+	}
+	text := string(out)
+	if !strings.Contains(text, "could not connect Claude Code") {
+		t.Fatalf("init did not identify the failed tool:\n%s", text)
+	}
+	for _, falseSuccess := range []string{"Set up Claude Code", "Encrypted memory sync is configured"} {
+		if strings.Contains(text, falseSuccess) {
+			t.Fatalf("init falsely reported %q after source failure:\n%s", falseSuccess, text)
 		}
 	}
 }

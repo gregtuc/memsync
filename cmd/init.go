@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gregtuc/memsync/internal/detect"
 	"github.com/gregtuc/memsync/internal/device"
@@ -20,29 +22,24 @@ func runInit(args []string) int {
 		return fail(fmt.Errorf("choose only one of --enable-codex-memories or --no-codex-memories"))
 	}
 
-	fmt.Printf("\nmemsync %s - memory courier for Claude Code & Codex\n", Version)
+	fmt.Printf("\nSetting up memsync %s...\n", Version)
 
 	bin, err := selfPath()
 	if err != nil {
 		return fail(err)
 	}
 
-	step("Detecting tools...")
 	tools := detect.All()
-	anyPresent := false
+	ready := make(map[string]bool)
+	issues := make(map[string]error)
+	var found []string
 	for _, t := range tools {
 		if t.Present {
-			anyPresent = true
-			v := ""
-			if t.Version != "" {
-				v = "  (" + t.Version + ")"
-			}
-			ok("%-13s %s%s", t.Name, t.Home, v)
-		} else {
-			warn("%-13s not found (%s)", t.Name, t.Home)
+			ready[t.Name] = true
+			found = append(found, friendlyToolName(t.Name))
 		}
 	}
-	if !anyPresent {
+	if len(found) == 0 {
 		return fail(fmt.Errorf("neither Claude Code nor Codex found; install one and re-run"))
 	}
 	if !dry {
@@ -51,149 +48,132 @@ func runInit(args []string) int {
 		}
 	}
 
-	codexMemories := detect.FeatureUnknown
 	for _, t := range tools {
 		if t.Name != "Codex CLI" || !t.Present {
 			continue
 		}
+		if !dry {
+			if err := os.MkdirAll(t.Home, 0o700); err != nil {
+				ready[t.Name] = false
+				issues[t.Name] = err
+				continue
+			}
+		}
 		features := detect.DetectCodexFeatures()
 		if features.CommandError != nil {
-			return fail(fmt.Errorf("Codex could not load its configuration/features; fix the reported config error or update Codex before wiring hooks: %w", features.CommandError))
+			ready[t.Name] = false
+			issues[t.Name] = features.CommandError
+			continue
 		}
-		codexMemories = features.Memories
 		if features.Hooks == detect.FeatureDisabled {
-			step("Preparing Codex...")
-			if dry {
-				ok("would enable Codex lifecycle hooks")
-			} else if err := setCodexFeature("hooks", true); err != nil {
-				return fail(err)
-			} else {
-				ok("enabled Codex lifecycle hooks")
-			}
-		}
-		if features.Memories != detect.FeatureEnabled {
-			enable := hasFlag(args, "--enable-codex-memories")
-			if !enable && !hasFlag(args, "--no-codex-memories") && stdinIsTerminal() && !dry {
-				fmt.Println("\nCodex Memories is off by default. It must be enabled for Codex → Claude sync.")
-				fmt.Println("Codex generates it in the background and may use a small amount of your Codex quota.")
-				fmt.Print("Enable Codex Memories now? [y/N]: ")
-				answer := strings.ToLower(readLine())
-				enable = answer == "y" || answer == "yes"
-			}
-			if enable {
-				if dry {
-					ok("would enable Codex Memories")
-				} else if err := setCodexFeature("memories", true); err != nil {
-					return fail(err)
-				} else {
-					codexMemories = detect.FeatureEnabled
-					ok("enabled Codex Memories (background generation may take a few sessions)")
+			if !dry {
+				if err := setCodexFeature("hooks", true); err != nil {
+					ready[t.Name] = false
+					issues[t.Name] = err
+					continue
 				}
 			}
 		}
-	}
-
-	step("Wiring user-scope hooks (idempotent, marked memsync-managed)...")
-	if dry {
-		warn("--dry-run: no files will be written")
-	}
-	for _, t := range tools {
-		if !t.Present {
-			continue
-		}
-		if dry {
-			ok("would wire %s", t.Name)
-			continue
-		}
-		if err := wire(t.Name, bin); err != nil {
-			return fail(err)
-		}
-	}
-	if !dry {
-		ok("hooks call the full path %s (survives GUI/Dock launches)", bin)
-		if hasPresentTool(tools, "Claude Code") {
-			if enabled, err := hooks.ClaudeHooksEnabled(); err == nil && !enabled {
-				warn("Claude Code has disableAllHooks=true; remove or disable that setting before memsync hooks can run")
+		if !dry {
+			if err := configureCodexMemories(features.Memories, args); err != nil {
+				ready[t.Name] = false
+				issues[t.Name] = err
+				continue
 			}
 		}
 	}
 
-	step("Setting up local vault...")
 	if dry {
-		ok("would create key %s and vault %s", paths.KeyPath(), paths.VaultDir())
-	} else {
-		_, created, err := loadOrCreateSetupKey()
-		if err != nil {
-			return fail(err)
-		}
-		if created {
-			ok("key      %s   AES-256 · 0600 · never stored in Git or the remote", paths.KeyPath())
-		} else {
-			ok("key      %s   (existing)", paths.KeyPath())
-		}
-		if err := vault.Ensure(bin); err != nil {
-			return fail(err)
-		}
-		ok("vault    %s   ciphertext-only · guards armed", paths.VaultDir())
-		dev, created, err := device.LoadOrCreate(paths.DeviceIDPath())
-		if err != nil {
-			return fail(err)
-		}
-		if created {
-			ok("device   %s   %s", dev.Name, dev.ID[:8])
-		} else {
-			ok("device   %s   (existing)", dev.Name)
-		}
-	}
-
-	if dry {
-		fmt.Println("\nDry run complete. Re-run without --dry-run to apply.")
+		ok("Found %s", strings.Join(found, " and "))
+		ok("Would configure encrypted memory sync")
+		fmt.Println("\nNo changes made.")
 		return 0
 	}
 
-	step("Checking the encrypted local pipeline...")
+	if _, _, err := loadOrCreateSetupKey(); err != nil {
+		return fail(err)
+	}
+	if _, _, err := device.LoadOrCreate(paths.DeviceIDPath()); err != nil {
+		return fail(err)
+	}
+	if err := vault.Ensure(bin); err != nil {
+		return fail(err)
+	}
+	for _, t := range tools {
+		if ready[t.Name] {
+			if err := wire(t.Name, bin); err != nil {
+				ready[t.Name] = false
+				issues[t.Name] = err
+			}
+		}
+	}
+	if ready["Claude Code"] {
+		if enabled, err := hooks.ClaudeHooksEnabled(); err != nil {
+			ready["Claude Code"] = false
+			issues["Claude Code"] = err
+		} else if !enabled {
+			ready["Claude Code"] = false
+			issues["Claude Code"] = fmt.Errorf("hooks are disabled")
+		}
+	}
 	if err := selfTest(); err != nil {
 		return fail(fmt.Errorf("self-test failed: %w", err))
 	}
 
-	step("Capturing existing memories (so the next session already has context)...")
+	totalFound := 0
 	for _, installed := range tools {
-		if !installed.Present {
+		if !ready[installed.Name] {
 			continue
 		}
-		source := struct{ tool, label string }{tool: "claude", label: "Claude Code"}
+		tool := "claude"
 		if installed.Name == "Codex CLI" {
-			source = struct{ tool, label string }{tool: "codex", label: "Codex"}
+			tool = "codex"
 		}
-		result, err := syncTool(source.tool)
+		result, err := syncTool(tool)
 		if err != nil {
-			warn("%-12s %v", source.label, err)
+			ready[installed.Name] = false
+			issues[installed.Name] = err
 			continue
 		}
-		ok("%-12s %d readable memories", source.label, result.Found)
+		totalFound += result.Found
 	}
 
-	if vault.HasRemote() {
-		fmt.Println("\nSetup is complete. The configured remote was synchronized where reachable.")
-	} else {
-		fmt.Println("\nLocal setup is complete. Nothing crossed the network (single-machine mode).")
+	var connected []string
+	for _, tool := range tools {
+		if ready[tool.Name] {
+			connected = append(connected, friendlyToolName(tool.Name))
+		}
 	}
-	fmt.Println("↻ Restart any open Claude Code / Codex sessions.")
-	if hasPresentTool(tools, "Codex CLI") {
-		fmt.Println("\nOne Codex security step remains:")
-		fmt.Println("  Open Codex and choose “Review hooks” → trust the two memsync hooks.")
-		fmt.Println("  You can review them again anytime with /hooks.")
+	if len(connected) == 0 {
+		for _, tool := range tools {
+			if err := issues[tool.Name]; err != nil {
+				return fail(fmt.Errorf("could not connect %s: %w", friendlyToolName(tool.Name), err))
+			}
+		}
+		return fail(fmt.Errorf("could not connect an installed tool; run `memsync doctor`"))
 	}
-	if codexMemories != detect.FeatureEnabled && hasPresentTool(tools, "Codex CLI") {
-		fmt.Println("\nCodex → Claude is waiting because Codex Memories is off.")
-		fmt.Println("  Enable it later with: memsync init --enable-codex-memories")
+	ok("Set up %s", strings.Join(connected, " and "))
+	ok("Encrypted memory sync is configured")
+	if totalFound > 0 {
+		ok("Captured %d existing memories", totalFound)
 	}
-	fmt.Println("\nNext (all optional):")
-	fmt.Println("  memsync status     see what is ready and what still needs attention")
-	fmt.Println("  memsync sync       capture everything now")
-	fmt.Println("  memsync doctor     verify or repair setup")
-	fmt.Println("  memsync remote create   prepare to add another machine")
+	for _, tool := range tools {
+		if tool.Present && !ready[tool.Name] {
+			warn("%s needs attention; run `memsync doctor`", friendlyToolName(tool.Name))
+		}
+	}
+	fmt.Printf("\nDone. Restart %s.\n", strings.Join(connected, " and "))
+	if ready["Codex CLI"] {
+		fmt.Println("When Codex asks, approve memsync to finish.")
+	}
 	return 0
+}
+
+func friendlyToolName(name string) string {
+	if name == "Codex CLI" {
+		return "Codex"
+	}
+	return name
 }
 
 func setCodexFeature(name string, enabled bool) error {
@@ -201,16 +181,18 @@ func setCodexFeature(name string, enabled bool) error {
 	if enabled {
 		action = "enable"
 	}
-	out, err := exec.Command("codex", "features", action, name).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "codex", "features", action, name)
+	command.WaitDelay = 500 * time.Millisecond
+	out, err := command.CombinedOutput()
 	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("Codex took too long while preparing %s", name)
+		}
 		return fmt.Errorf("could not %s Codex feature %q: %w: %s", action, name, err, strings.TrimSpace(string(out)))
 	}
 	return nil
-}
-
-func stdinIsTerminal() bool {
-	info, err := os.Stdin.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func hasPresentTool(tools []detect.Tool, name string) bool {
@@ -225,15 +207,9 @@ func hasPresentTool(tools []detect.Tool, name string) bool {
 func wire(toolName, bin string) error {
 	switch toolName {
 	case "Claude Code":
-		if err := hooks.ClaudeInstall(bin); err != nil {
-			return err
-		}
-		ok("%s   hooks: SessionStart, SessionEnd", filepath.Base(paths.ClaudeSettings()))
+		return hooks.ClaudeInstall(bin)
 	case "Codex CLI":
-		if err := hooks.CodexInstall(bin); err != nil {
-			return err
-		}
-		ok("%s      hooks: SessionStart, Stop", filepath.Base(paths.CodexConfig()))
+		return hooks.CodexInstall(bin)
 	}
 	return nil
 }

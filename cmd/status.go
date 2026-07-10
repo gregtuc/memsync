@@ -32,9 +32,10 @@ func runStatus(args []string) int {
 	if dev, err := device.Load(paths.DeviceIDPath()); err == nil {
 		fmt.Printf("\n  This machine: %s (%s)\n", dev.Name, dev.ID[:8])
 	}
+	tools := detect.All()
 
 	fmt.Println("\nLocal memory sources")
-	for _, t := range detect.All() {
+	for _, t := range tools {
 		if !t.Present {
 			fmt.Printf("  - %-12s not installed\n", t.Name)
 			continue
@@ -80,13 +81,17 @@ func runStatus(args []string) int {
 	} else if vault.RemoteHasCredentials(remote) {
 		fmt.Printf("  ✗ Remote: %s (embedded credentials are not allowed)\n", vault.DisplayRemoteURL(remote))
 	} else {
-		fmt.Printf("  ✓ Remote: %s\n", vault.DisplayRemoteURL(remote))
+		fmt.Printf("  - Remote configured: %s\n", vault.DisplayRemoteURL(remote))
 	}
 	if last := vault.LastCommit(); last != "" {
 		fmt.Printf("  ✓ Last vault change: %s\n", last)
 	}
 
 	fmt.Println("\nHook activity")
+	present := make(map[string]bool)
+	for _, tool := range tools {
+		present[tool.Name] = tool.Present
+	}
 	for _, item := range []struct {
 		tool  string
 		label string
@@ -94,6 +99,9 @@ func runStatus(args []string) int {
 		{tool: "claude", label: "Claude Code"},
 		{tool: "codex", label: "Codex"},
 	} {
+		if !present[mapToolName(item.tool)] {
+			continue
+		}
 		configured := wiredFor(mapToolName(item.tool))
 		if !configured {
 			fmt.Printf("  ✗ %-12s not configured\n", item.label)
@@ -109,7 +117,7 @@ func runStatus(args []string) int {
 		capture, captureErr := activity.Read(paths.DataDir(), item.tool, "capture")
 		if injectErr != nil && captureErr != nil {
 			if item.tool == "codex" {
-				fmt.Printf("  ! %-12s configured; not observed (review/trust with `/hooks`)\n", item.label)
+				fmt.Printf("  ! %-12s configured; open Codex once to approve memsync\n", item.label)
 			} else {
 				fmt.Printf("  ! %-12s configured; restart once to verify\n", item.label)
 			}
@@ -126,11 +134,7 @@ func runStatus(args []string) int {
 		fmt.Printf("  %s %-12s observed %s\n", state, item.label, relativeTime(latest.At))
 	}
 
-	if remote == "" {
-		fmt.Println("\nAdd another laptop: `memsync remote create`, then follow the printed steps.")
-	} else {
-		fmt.Println("\nAdd another laptop: run `memsync join` there, then `memsync pair` here.")
-	}
+	fmt.Println("\nAdd another laptop: run `memsync join` there, then `memsync pair` here.")
 	return 0
 }
 
