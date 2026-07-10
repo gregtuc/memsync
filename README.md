@@ -24,12 +24,8 @@ those generated memory files, encrypts selected records into a local vault, and
 adds relevant records to the next session as reference context. It never edits
 the tools' own memory, `CLAUDE.md`, or `AGENTS.md` files.
 
-| What you want | Supported setup |
-|---|---|
-| Claude Code ↔ Codex on one laptop | Local vault; no account or network required |
-| Claude Code ↔ Claude Code across laptops | Private Git remote and one-time pairing |
-| Codex ↔ Codex across laptops | Private Git remote, pairing, and Codex Memories enabled |
-| Claude Code ↔ Codex across laptops | The same remote and pairing flow |
+Start with one laptop—no account or network required. If you later want the
+same memory on another laptop, connect a private Git remote and pair it once.
 
 ## Install
 
