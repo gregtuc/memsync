@@ -29,27 +29,8 @@ same memory on another laptop, connect a private Git remote and pair it once.
 
 ## Install
 
-The working install path before the first GitHub release is published requires
-Go 1.23 or newer:
-
-```sh
-GOBIN="$HOME/.local/bin" go install github.com/gregtuc/memsync@latest
-"$HOME/.local/bin/memsync" init
-```
-
-Tagged releases automatically build macOS and Linux binaries for Intel/AMD64
-and ARM64. Once a release is present, the checksum-verifying installer is:
-
 ```sh
 curl -fsSL https://raw.githubusercontent.com/gregtuc/memsync/main/install.sh | sh
-```
-
-It installs to `~/.local/bin` by default and prints the exact next command if
-that directory is not on `PATH`. Set `MEMSYNC_BINDIR` to choose another
-directory. To pin a published version:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/gregtuc/memsync/main/install.sh | sh -s -- v0.1.0
 ```
 
 ## Set up one laptop
