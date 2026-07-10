@@ -33,6 +33,11 @@ func DataDir() string {
 // KeyPath is the AES key file. Never leaves the machine.
 func KeyPath() string { return filepath.Join(ConfigDir(), "key") }
 
+// DeviceIDPath is this installation's non-secret, per-machine identifier. It
+// is deliberately not shared during pairing so same-tool memories from another
+// machine can be distinguished from local echoes.
+func DeviceIDPath() string { return filepath.Join(ConfigDir(), "device-id") }
+
 // VaultDir is the ciphertext-only git repo that crosses machines.
 func VaultDir() string { return filepath.Join(DataDir(), "vault") }
 

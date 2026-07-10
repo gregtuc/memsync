@@ -13,8 +13,9 @@ import (
 	"github.com/gregtuc/memsync/internal/paths"
 )
 
-// marker identifies memsync-owned entries so uninstall removes exactly its own.
-const marker = "memsync"
+// claudeMarker identifies exactly the commands memsync owns. It is a shell
+// comment, so it does not change hook execution.
+const claudeMarker = "# memsync-managed"
 
 type claudeEvent struct {
 	name    string
@@ -33,14 +34,58 @@ func claudeEvents(bin string) []claudeEvent {
 	}
 }
 
-// ClaudeWired reports whether memsync's SessionStart hook is present.
+// ClaudeWired reports whether both required memsync lifecycle hooks are present.
 func ClaudeWired() (bool, error) {
 	root, err := readJSON(paths.ClaudeSettings())
 	if err != nil {
 		return false, err
 	}
 	hooks, _ := root["hooks"].(map[string]any)
-	return eventHasMarker(hooks, "SessionStart"), nil
+	return eventHasMarker(hooks, "SessionStart") && eventHasMarker(hooks, "SessionEnd"), nil
+}
+
+// ClaudeWiredFor additionally verifies the exact current binary path.
+func ClaudeWiredFor(bin string) (bool, error) {
+	root, err := readJSON(paths.ClaudeSettings())
+	if err != nil {
+		return false, err
+	}
+	hookMap, _ := root["hooks"].(map[string]any)
+	wants := map[string]string{
+		"SessionStart": shellCommand(bin, "inject", "--tool", "claude") + " " + claudeMarker,
+		"SessionEnd":   shellCommand(bin, "sync", "--tool", "claude") + " " + claudeMarker,
+	}
+	for event, want := range wants {
+		found := false
+		for _, entry := range asSlice(hookMap[event]) {
+			entryMap, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, hook := range asSlice(entryMap["hooks"]) {
+				hookMap, _ := hook.(map[string]any)
+				if command, _ := hookMap["command"].(string); command == want {
+					found = true
+				}
+			}
+		}
+		if !found {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// ClaudeHooksEnabled reports whether the user settings explicitly disable all
+// hooks. Managed policy may impose additional restrictions that are visible
+// only inside Claude Code.
+func ClaudeHooksEnabled() (bool, error) {
+	root, err := readJSON(paths.ClaudeSettings())
+	if err != nil {
+		return false, err
+	}
+	disabled, _ := root["disableAllHooks"].(bool)
+	return !disabled, nil
 }
 
 // ClaudeInstall adds memsync's hooks to ~/.claude/settings.json. Idempotent.
@@ -57,10 +102,20 @@ func ClaudeInstall(bin string) error {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
+	// Remove every memsync-owned entry first, including events used by older
+	// releases (notably FileChanged), then install the current event set.
+	for name, raw := range hooks {
+		remaining := stripMarker(asSlice(raw))
+		if len(remaining) == 0 {
+			delete(hooks, name)
+		} else {
+			hooks[name] = remaining
+		}
+	}
 	for _, ev := range claudeEvents(bin) {
-		arr := stripMarker(asSlice(hooks[ev.name]))
+		arr := asSlice(hooks[ev.name])
 		entry := map[string]any{
-			"hooks": []any{map[string]any{"type": "command", "command": strings.Join(ev.command, " ")}},
+			"hooks": []any{map[string]any{"type": "command", "command": shellCommand(ev.command...) + " " + claudeMarker}},
 		}
 		if ev.matcher != "" {
 			entry["matcher"] = ev.matcher
@@ -138,7 +193,32 @@ func entryHasMarker(e any) bool {
 		if !ok {
 			continue
 		}
-		if cmd, _ := hm["command"].(string); strings.Contains(cmd, marker) {
+		if cmd, _ := hm["command"].(string); isManagedClaudeCommand(cmd) {
+			return true
+		}
+	}
+	return false
+}
+
+func isManagedClaudeCommand(cmd string) bool {
+	if strings.Contains(cmd, claudeMarker) {
+		return true
+	}
+	// Migrate the precise quoted and unquoted argv tails emitted by releases
+	// that predate the explicit marker. Merely containing the word "memsync" is
+	// not ownership; the executable itself must have been named memsync.
+	for _, tail := range []string{
+		" 'inject' '--tool' 'claude'",
+		" 'sync' '--tool' 'claude'",
+		" inject --tool claude",
+		" sync --tool claude",
+	} {
+		if !strings.HasSuffix(strings.TrimSpace(cmd), strings.TrimSpace(tail)) {
+			continue
+		}
+		executable := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(cmd), strings.TrimSpace(tail)))
+		executable = strings.Trim(executable, "'\"")
+		if filepath.Base(executable) == "memsync" {
 			return true
 		}
 	}
@@ -169,14 +249,11 @@ func readJSON(path string) (map[string]any, error) {
 }
 
 func writeJSON(path string, root map[string]any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	b, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o644)
+	return writeFileAtomic(path, append(b, '\n'), 0o644)
 }
 
 func backup(path string) error {
@@ -187,5 +264,5 @@ func backup(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path+".memsync.bak", b, 0o600)
+	return writeFileAtomic(path+".memsync.bak", b, 0o600)
 }

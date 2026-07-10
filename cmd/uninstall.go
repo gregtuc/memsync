@@ -11,6 +11,7 @@ import (
 
 func runUninstall(args []string) int {
 	purge := hasFlag(args, "--purge")
+	remote := vault.RemoteURL()
 
 	step("Removing memsync hooks (only memsync's own entries)...")
 	if changed, err := hooks.ClaudeUninstall(); err != nil {
@@ -37,13 +38,13 @@ func runUninstall(args []string) int {
 	}
 
 	step("Purging local key + vault...")
-	for _, p := range []string{paths.KeyPath(), paths.VaultDir(), paths.MirrorDir(), vault.HooksDir()} {
+	for _, p := range []string{paths.ConfigDir(), paths.DataDir()} {
 		if err := os.RemoveAll(p); err == nil {
 			ok("removed %s", p)
 		}
 	}
-	if remote := vault.RemoteURL(); remote != "" {
-		warn("the remote repo still exists on GitHub - delete it yourself: %s", remote)
+	if remote != "" {
+		warn("the remote repo still exists - delete it yourself if desired: %s", vault.DisplayRemoteURL(remote))
 	}
 	fmt.Println("\nNote: this does not remove the installed binary or any PATH line the installer added.")
 	return 0

@@ -3,7 +3,6 @@ package hooks
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/gregtuc/memsync/internal/paths"
@@ -29,11 +28,11 @@ func codexBlock(bin string) string {
 	b.WriteString("[[hooks.SessionStart]]\n\n")
 	b.WriteString("[[hooks.SessionStart.hooks]]\n")
 	b.WriteString("type = \"command\"\n")
-	b.WriteString(fmt.Sprintf("command = %q\n\n", bin+" inject --tool codex"))
+	b.WriteString(fmt.Sprintf("command = %q\n\n", shellCommand(bin, "inject", "--tool", "codex")))
 	b.WriteString("[[hooks.Stop]]\n\n")
 	b.WriteString("[[hooks.Stop.hooks]]\n")
 	b.WriteString("type = \"command\"\n")
-	b.WriteString(fmt.Sprintf("command = %q\n", bin+" sync --tool codex"))
+	b.WriteString(fmt.Sprintf("command = %q\n", shellCommand(bin, "sync", "--tool", "codex")))
 	b.WriteString(codexEnd + "\n")
 	return b.String()
 }
@@ -44,7 +43,55 @@ func CodexWired() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return strings.Contains(content, codexBegin), nil
+	hasBegin := hasMarkerLine(content, codexBegin)
+	hasEnd := hasMarkerLine(content, codexEnd)
+	if !hasBegin && !hasEnd {
+		return false, nil
+	}
+	if _, err := stripBlock(content); err != nil {
+		return false, err
+	}
+	if !hasBegin || !hasEnd || strings.Count(content, codexBegin) != 1 || strings.Count(content, codexEnd) != 1 {
+		return false, nil
+	}
+	start := strings.Index(content, codexBegin)
+	end := strings.Index(content[start:], codexEnd)
+	block := content[start : start+end]
+	for _, required := range []string{
+		"[[hooks.SessionStart]]",
+		"[[hooks.SessionStart.hooks]]",
+		"[[hooks.Stop]]",
+		"[[hooks.Stop.hooks]]",
+		"'inject' '--tool' 'codex'",
+		"'sync' '--tool' 'codex'",
+	} {
+		if !strings.Contains(block, required) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// CodexWiredFor additionally verifies the exact current binary path and block.
+func CodexWiredFor(bin string) (bool, error) {
+	wired, err := CodexWired()
+	if err != nil || !wired {
+		return wired, err
+	}
+	content, err := readText(paths.CodexConfig())
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(content, codexBlock(bin)), nil
+}
+
+func hasMarkerLine(content, marker string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSuffix(line, "\r") == marker {
+			return true
+		}
+	}
+	return false
 }
 
 // CodexInstall appends (or refreshes) memsync's managed block. Idempotent.
@@ -54,10 +101,13 @@ func CodexInstall(bin string) error {
 	if err != nil {
 		return err
 	}
+	next, err := stripBlock(content)
+	if err != nil {
+		return err
+	}
 	if err := backup(path); err != nil {
 		return err
 	}
-	next := stripBlock(content)
 	if next != "" && !strings.HasSuffix(next, "\n") {
 		next += "\n"
 	}
@@ -75,7 +125,10 @@ func CodexUninstall() (bool, error) {
 	if err != nil || content == "" {
 		return false, err
 	}
-	next := stripBlock(content)
+	next, err := stripBlock(content)
+	if err != nil {
+		return false, err
+	}
 	if next == content {
 		return false, nil
 	}
@@ -85,20 +138,32 @@ func CodexUninstall() (bool, error) {
 	return true, writeText(path, strings.TrimRight(next, "\n")+"\n")
 }
 
-func stripBlock(content string) string {
-	start := strings.Index(content, codexBegin)
-	if start < 0 {
-		return content
+func stripBlock(content string) (string, error) {
+	var out strings.Builder
+	inside := false
+	for _, line := range strings.SplitAfter(content, "\n") {
+		marker := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		switch marker {
+		case codexBegin:
+			if inside {
+				return "", fmt.Errorf("%s has nested memsync begin markers; refusing to edit", paths.CodexConfig())
+			}
+			inside = true
+		case codexEnd:
+			if !inside {
+				return "", fmt.Errorf("%s has an unmatched memsync end marker; refusing to edit", paths.CodexConfig())
+			}
+			inside = false
+		default:
+			if !inside {
+				out.WriteString(line)
+			}
+		}
 	}
-	end := strings.Index(content, codexEnd)
-	if end < 0 {
-		return content[:start]
+	if inside {
+		return "", fmt.Errorf("%s has an unterminated memsync block; refusing to edit", paths.CodexConfig())
 	}
-	end += len(codexEnd)
-	if end < len(content) && content[end] == '\n' {
-		end++
-	}
-	return content[:start] + content[end:]
+	return out.String(), nil
 }
 
 func readText(path string) (string, error) {
@@ -113,8 +178,5 @@ func readText(path string) (string, error) {
 }
 
 func writeText(path, content string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(content), 0o644)
+	return writeFileAtomic(path, []byte(content), 0o644)
 }

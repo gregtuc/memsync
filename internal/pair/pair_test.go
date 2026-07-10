@@ -42,3 +42,17 @@ func TestRejectsMalformedTokens(t *testing.T) {
 		t.Fatal("opened a malformed reply")
 	}
 }
+
+func TestInviteFingerprintIsStableAndInviteSpecific(t *testing.T) {
+	a, _ := NewIdentity()
+	b, _ := NewIdentity()
+	first, err := InviteFingerprint(a.Invite())
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := InviteFingerprint(a.Invite())
+	other, _ := InviteFingerprint(b.Invite())
+	if first != again || first == other || len(first) != 9 {
+		t.Fatalf("bad fingerprints: first=%q again=%q other=%q", first, again, other)
+	}
+}

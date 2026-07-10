@@ -43,6 +43,22 @@ func (id *Identity) Invite() string {
 	return invitePrefix + b64(id.priv.PublicKey().Bytes())
 }
 
+// InviteFingerprint is a short human-comparison code. The invite is public but
+// must still be authentic: comparing this code prevents a substituted invite
+// from receiving the sealed vault key.
+func InviteFingerprint(invite string) (string, error) {
+	raw, err := decode(invite, invitePrefix)
+	if err != nil {
+		return "", err
+	}
+	if _, err := ecdh.X25519().NewPublicKey(raw); err != nil {
+		return "", fmt.Errorf("invalid invite: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	hex := strings.ToUpper(fmt.Sprintf("%x", sum[:4]))
+	return hex[:4] + "-" + hex[4:], nil
+}
+
 // Seal wraps payload to the invite's public key, returning a reply token.
 func Seal(invite string, payload []byte) (string, error) {
 	recipBytes, err := decode(invite, invitePrefix)

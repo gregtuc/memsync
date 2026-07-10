@@ -19,16 +19,15 @@ type command struct {
 func commands() []command {
 	return []command{
 		{"init", "Detect tools, wire hooks, make key + local vault, self-test", runInit},
-		{"doctor", "Report status and re-run the round-trip self-test", runDoctor},
+		{"doctor", "Diagnose setup (--fix repairs safe local state)", runDoctor},
 		{"status", "Show what's synced right now", runStatus},
+		{"sync", "Capture local memories and sync now", runSync},
 		{"pair", "Machine 1: add a second machine", runPair},
 		{"join", "Machine 2: join an existing vault", runJoin},
 		{"remote", "Manage the cross-machine remote (create | set <url>)", runRemote},
-		{"uninstall", "Remove memsync's hooks (‑‑purge also clears key/vault)", runUninstall},
-		{"self", "Maintenance (self update)", runSelf},
+		{"uninstall", "Remove memsync's hooks (--purge also clears key/vault)", runUninstall},
 		// internal, invoked by hooks:
 		{"inject", "", runInject},
-		{"sync", "", runSync},
 		{"guard", "", runGuard},
 	}
 }
@@ -45,12 +44,40 @@ func Execute(args []string) int {
 	}
 	for _, c := range commands() {
 		if c.name == args[0] {
+			if hasFlag(args[1:], "-h") || hasFlag(args[1:], "--help") {
+				commandUsage(c.name)
+				return 0
+			}
 			return c.run(args[1:])
 		}
 	}
 	fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[0])
 	usage()
 	return 2
+}
+
+func commandUsage(name string) {
+	switch name {
+	case "init":
+		fmt.Println("Usage: memsync init [--dry-run] [--enable-codex-memories | --no-codex-memories]")
+	case "doctor":
+		fmt.Println("Usage: memsync doctor [--fix]")
+	case "status":
+		fmt.Println("Usage: memsync status")
+	case "sync":
+		fmt.Println("Usage: memsync sync")
+	case "pair":
+		fmt.Println("Usage: memsync pair [--yes]")
+		fmt.Println("  --yes skips the displayed fingerprint confirmation; authenticate the invite another way.")
+	case "join":
+		fmt.Println("Usage: memsync join")
+	case "remote":
+		fmt.Println("Usage: memsync remote create | memsync remote set <url>")
+	case "uninstall":
+		fmt.Println("Usage: memsync uninstall [--purge]")
+	default:
+		usage()
+	}
 }
 
 func usage() {

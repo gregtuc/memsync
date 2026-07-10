@@ -29,7 +29,7 @@ func claude() Tool {
 	return Tool{
 		Name:    "Claude Code",
 		Home:    dir,
-		Present: isDir(dir),
+		Present: isDir(dir) || hasExecutable("claude"),
 		Version: version("claude", "--version"),
 	}
 }
@@ -39,7 +39,7 @@ func codex() Tool {
 	return Tool{
 		Name:    "Codex CLI",
 		Home:    dir,
-		Present: isDir(dir),
+		Present: isDir(dir) || hasExecutable("codex"),
 		Version: version("codex", "--version"),
 	}
 }
@@ -47,6 +47,11 @@ func codex() Tool {
 func isDir(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && info.IsDir()
+}
+
+func hasExecutable(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }
 
 // version runs `bin --version` with a short timeout; best-effort, never fatal.

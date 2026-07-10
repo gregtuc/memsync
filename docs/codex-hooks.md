@@ -1,48 +1,78 @@
-# Codex hook wiring
+# Codex integration
 
-memsync wires itself into Codex via a marker-delimited block in the user-scope
-`~/.codex/config.toml` (`internal/hooks/codex.go`). The schema below was verified
-against the current Codex docs (developers.openai.com/codex, which redirect to
-learn.chatgpt.com/docs).
+memsync uses two user-scope lifecycle hooks in `~/.codex/config.toml`:
 
 ```toml
 # >>> memsync (managed) - do not edit this block >>>
-[features]
-hooks = true
-
 [[hooks.SessionStart]]
 
 [[hooks.SessionStart.hooks]]
 type = "command"
-command = "/abs/path/memsync inject --tool codex"
+command = "/absolute/path/to/memsync inject --tool codex"
 
 [[hooks.Stop]]
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = "/abs/path/memsync sync --tool codex"
+command = "/absolute/path/to/memsync sync --tool codex"
 # <<< memsync (managed) <<<
 ```
 
-Schema rules that matter:
+`SessionStart` refreshes the encrypted vault and adds relevant shared memory as
+developer context. `Stop` captures Codex's generated memory and returns the JSON
+object Codex expects from that event. Both hook commands fail open so a memsync
+problem does not prevent a Codex session from continuing.
 
-- Event names are PascalCase: `SessionStart`, `Stop`. Lowercase `session_start`
-  or `stop` are not recognized and never fire.
-- A command is a single string nested under `[[hooks.<Event>.hooks]]` with
-  `type = "command"`. It is not an array, and it does not sit directly on the
-  `[[hooks.<Event>]]` table.
-- Hooks are enabled by default; `[features] hooks = true` is the canonical key
-  (`codex_hooks` is a deprecated alias). Keeping it explicit is harmless.
-- A `SessionStart` hook injects context by printing either plain text or
-  `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}`
-  on stdout. memsync prints the JSON form (`cmd/inject.go`).
-- A `Stop` hook must print valid JSON on stdout when it exits 0. memsync's
-  `sync` prints `{}` (`cmd/sync.go`).
+The command in the real block is shell-quoted, so an installed path containing
+spaces or shell metacharacters remains safe. `memsync init` is idempotent and
+refreshes only its marker-delimited block; `memsync uninstall` removes that same
+block.
 
-Notes:
+## Hook trust
 
-- memsync only writes user-scope config. Repo-local `.codex/config.toml` hooks
-  have not fired reliably in interactive sessions (openai/codex#17532).
-- Under `--strict-config` an unknown or mistyped key refuses to start, so the
-  block must stay schema-valid. It is removed verbatim by `memsync uninstall`,
-  and `memsync init --dry-run` previews it.
+Codex requires users to review and trust each new or changed non-managed command
+hook. Merely finding the block in `config.toml` does not prove that Codex ran it.
+After setup:
+
+1. Open Codex.
+2. Choose **Review hooks**, or enter `/hooks`.
+3. Inspect and trust both memsync commands.
+4. Start a fresh session, then run `memsync status` to confirm the hook was
+   observed.
+
+Trust is recorded against the exact definition. Moving the memsync binary or
+changing the command can require another review. `memsync doctor --fix` refreshes
+stale paths; review the hooks again afterward.
+
+## Feature flags
+
+Codex hooks are enabled by default. If the effective `hooks` feature is
+explicitly disabled, `memsync init` enables it and `memsync doctor` reports a
+remaining problem.
+
+Codex **Memories** is a separate, opt-in feature. It is not required to receive
+Claude memory, but it is required for Codex to contribute memory to Claude or
+another laptop. Interactive setup asks before enabling it; unattended setup can
+use:
+
+```sh
+memsync init --enable-codex-memories
+```
+
+Codex generates memory in the background after eligible work becomes idle, so
+the supported files under `~/.codex/memories/` may not appear immediately. A
+successful hook with zero Codex records can therefore be normal at first. Use
+`memsync status`, then `memsync sync` after Codex has generated a summary.
+
+## Schema details
+
+- Event names are case-sensitive: `SessionStart` and `Stop`.
+- Commands live under `[[hooks.<Event>.hooks]]` and use `type = "command"`.
+- `SessionStart` emits
+  `hookSpecificOutput.additionalContext` with `hookEventName = "SessionStart"`.
+- `Stop` exits successfully with valid JSON on stdout.
+- memsync writes only user-scope configuration. Project-local hook trust and
+  managed enterprise policy are separate Codex controls.
+
+The current hook behavior is documented in the
+[official Codex hooks guide](https://developers.openai.com/codex/hooks).

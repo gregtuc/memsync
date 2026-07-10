@@ -2,6 +2,9 @@ package crypto
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -30,9 +33,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
-// Deterministic output is what keeps the vault churn-free: encrypting the same
-// content twice must produce identical bytes (a git no-op on re-sync).
-func TestDeterministic(t *testing.T) {
+func TestEncryptionIsRandomized(t *testing.T) {
 	key, _ := GenerateKey()
 	msg := []byte("use the env-setup helper for staging")
 	a, err := Encrypt(key, msg)
@@ -43,8 +44,14 @@ func TestDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(a, b) {
-		t.Fatal("same key+plaintext produced different ciphertext (would churn the vault)")
+	if bytes.Equal(a, b) {
+		t.Fatal("same key+plaintext produced identical ciphertext")
+	}
+	for _, env := range [][]byte{a, b} {
+		plain, err := Decrypt(key, env)
+		if err != nil || !bytes.Equal(plain, msg) {
+			t.Fatalf("randomized envelope did not round-trip: %q, %v", plain, err)
+		}
 	}
 }
 
@@ -104,5 +111,60 @@ func TestSaveLoadKeyRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(orig, loaded) {
 		t.Fatal("loaded key does not match saved key")
+	}
+}
+
+func TestLoadKeyDoesNotCreateMissingKey(t *testing.T) {
+	path := t.TempDir() + "/missing/key"
+	if _, err := LoadKey(path); err == nil {
+		t.Fatal("missing key unexpectedly loaded")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("LoadKey created or touched the missing key: %v", err)
+	}
+}
+
+func TestConcurrentLoadOrCreateChoosesOneCompleteKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config", "key")
+	const workers = 24
+	type result struct {
+		key     []byte
+		created bool
+		err     error
+	}
+	results := make(chan result, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			key, created, err := LoadOrCreateKey(path)
+			results <- result{key: key, created: created, err: err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var winner []byte
+	created := 0
+	for got := range results {
+		if got.err != nil {
+			t.Fatalf("concurrent create failed: %v", got.err)
+		}
+		if winner == nil {
+			winner = got.key
+		}
+		if !bytes.Equal(winner, got.key) {
+			t.Fatal("concurrent bootstraps returned different keys")
+		}
+		if got.created {
+			created++
+		}
+	}
+	if created != 1 {
+		t.Fatalf("created count = %d, want exactly 1", created)
 	}
 }
