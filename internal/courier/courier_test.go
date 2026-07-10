@@ -1,6 +1,7 @@
 package courier
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,8 +147,8 @@ func TestRenderContextHasMarkersAndRespectsCap(t *testing.T) {
 		t.Fatal("rendered context should be detectable as synced")
 	}
 	small := RenderContext("Codex", mems, 130)
-	if !strings.Contains(small, "truncated") {
-		t.Fatalf("expected a truncation note under a tight budget, got: %q", small)
+	if !strings.Contains(small, "not shown") {
+		t.Fatalf("expected an omission note under a tight budget, got: %q", small)
 	}
 }
 
@@ -186,5 +187,60 @@ func TestOneLinePrefersContentOverHeading(t *testing.T) {
 	}
 	if got := oneLine("# Only Heading"); got != "Only Heading" {
 		t.Fatalf("heading fallback failed: %q", got)
+	}
+}
+
+// Regression: Claude auto-memories lead with YAML frontmatter. The summary must
+// be the purpose-built `description:` rather than the `name:` header line (the
+// latter is what shipped, so every injected line read "<title>: name: <slug>").
+func TestOneLineUsesFrontmatterDescription(t *testing.T) {
+	body := "---\n" +
+		"name: project_memsync\n" +
+		"description: \"memsync — Greg's personal Go CLI syncing agent memories\"\n" +
+		"metadata:\n" +
+		"  type: project\n" +
+		"---\n\n" +
+		"**memsync** — a personal side project.\n"
+	if got := oneLine(body); got != "memsync — Greg's personal Go CLI syncing agent memories" {
+		t.Fatalf("frontmatter description not used: %q", got)
+	}
+}
+
+func TestOneLineSkipsFrontmatterWithoutDescription(t *testing.T) {
+	body := "---\nname: deploy\nmetadata:\n  type: reference\n---\n\n# Heading\nHold traffic during a roll.\n"
+	if got := oneLine(body); got != "Hold traffic during a roll." {
+		t.Fatalf("frontmatter not skipped to first body line: %q", got)
+	}
+}
+
+func TestOneLineSingleQuotedDescriptionIsUnquoted(t *testing.T) {
+	if got := oneLine("---\nname: x\ndescription: 'it''s fine'\n---\nbody\n"); got != "it's fine" {
+		t.Fatalf("single-quoted description not unquoted: %q", got)
+	}
+}
+
+func TestOneLineNoFrontmatterUnchanged(t *testing.T) {
+	if got := oneLine("plain note, no frontmatter\n"); got != "plain note, no frontmatter" {
+		t.Fatalf("plain note regressed: %q", got)
+	}
+	// A "---" that is not a leading fence must not be treated as frontmatter.
+	if got := oneLine("real content\n---\nfooter\n"); got != "real content" {
+		t.Fatalf("mid-body --- misread as frontmatter: %q", got)
+	}
+}
+
+func TestRenderContextTruncationReportsRemainingCount(t *testing.T) {
+	var mems []Memory
+	for i := 0; i < 200; i++ {
+		mems = append(mems, Memory{Origin: "claude", Scope: "repo", Title: "m", Body: "a memory body", UpdatedAt: int64(i)})
+	}
+	out := RenderContext("Claude", mems, 4000)
+	shown := strings.Count(out, "- "+syncedTag)
+	if shown == 0 || shown == len(mems) {
+		t.Fatalf("expected a partial render, shown=%d of %d", shown, len(mems))
+	}
+	want := fmt.Sprintf("and %d more not shown", len(mems)-shown)
+	if !strings.Contains(out, want) {
+		t.Fatalf("omission note wrong; want %q in:\n%s", want, out)
 	}
 }

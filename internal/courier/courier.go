@@ -3,6 +3,7 @@
 package courier
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -211,13 +212,17 @@ func RenderContext(fromLabel string, mems []Memory, maxBytes int) string {
 	var b strings.Builder
 	b.WriteString("<!-- " + referenceMarker + " -->\n")
 	b.WriteString("### From " + fromLabel + " (reference only, may be stale; do not copy into your own memory).\n\n")
+	rendered := 0
 	for _, m := range mems {
 		block := renderMemory(m)
 		if b.Len()+len(block) > maxBytes {
-			b.WriteString("- … (truncated to fit context budget; more available on request)\n")
 			break
 		}
 		b.WriteString(block)
+		rendered++
+	}
+	if rendered < len(mems) {
+		fmt.Fprintf(&b, "- … and %d more not shown (over the injected context budget)\n", len(mems)-rendered)
 	}
 	return b.String()
 }
@@ -263,11 +268,21 @@ func safeLabel(s string) string {
 	return clipBytes(strings.TrimSpace(s), 60)
 }
 
-// oneLine summarizes a note, preferring the first real content line over a
-// markdown heading (falling back to the heading if that's all there is).
+// oneLine summarizes a note for the injected index. Memories that lead with YAML
+// frontmatter (Claude's auto-memories) are summarized by their purpose-built
+// `description:` field; without one, the frontmatter is skipped so the summary is
+// a real fact rather than the `name:` header. Otherwise it prefers the first
+// content line over a markdown heading (falling back to the heading alone).
 func oneLine(s string) string {
+	body := strings.TrimLeft(s, " \t\r\n")
+	if desc, rest, ok := parseFrontmatter(body); ok {
+		if desc != "" {
+			return clip(desc)
+		}
+		body = rest
+	}
 	var firstHeading string
-	for _, raw := range strings.Split(strings.TrimSpace(s), "\n") {
+	for _, raw := range strings.Split(strings.TrimSpace(body), "\n") {
 		t := strings.TrimSpace(raw)
 		if t == "" {
 			continue
@@ -289,6 +304,48 @@ func oneLine(s string) string {
 		return clip(firstHeading)
 	}
 	return "(empty)"
+}
+
+// parseFrontmatter recognizes a leading YAML frontmatter block delimited by lines
+// that are exactly "---". It returns the top-level `description:` value (if any),
+// the document body that follows the block, and whether a block was found. It is
+// intentionally minimal, not a general YAML parser: it reads only the single-line
+// top-level `description` scalar memsync's producers emit.
+func parseFrontmatter(s string) (description, body string, ok bool) {
+	const fence = "---"
+	lines := strings.Split(s, "\n")
+	if len(lines) == 0 || strings.TrimRight(lines[0], " \t\r") != fence {
+		return "", s, false
+	}
+	for i := 1; i < len(lines); i++ {
+		line := strings.TrimRight(lines[i], " \t\r")
+		if line == fence {
+			rest := strings.Join(lines[i+1:], "\n")
+			return description, strings.TrimLeft(rest, "\r\n"), true
+		}
+		if description == "" {
+			if v, found := strings.CutPrefix(line, "description:"); found {
+				// Skip block-scalar indicators; only a plain single-line value helps.
+				if value := unquoteScalar(strings.TrimSpace(v)); value != ">" && value != "|" {
+					description = value
+				}
+			}
+		}
+	}
+	return "", s, false // no closing fence: treat as ordinary body
+}
+
+// unquoteScalar strips matching surrounding quotes from a YAML scalar and undoes
+// the minimal escaping used inside them. Frontmatter descriptions are plain text,
+// so no other escape handling is needed.
+func unquoteScalar(v string) string {
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		return strings.ReplaceAll(v[1:len(v)-1], `\"`, `"`)
+	}
+	if len(v) >= 2 && v[0] == '\'' && v[len(v)-1] == '\'' {
+		return strings.ReplaceAll(v[1:len(v)-1], "''", "'")
+	}
+	return v
 }
 
 func clip(s string) string {
